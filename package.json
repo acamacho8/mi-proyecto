@@ -4,10 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npx prisma generate && next build",
     "start": "next start",
-    "lint": "next lint",
-    "postinstall": "npx prisma generate"
+    "lint": "next lint"
+    
   },
   "dependencies": {
     "next": "16.1.6",
