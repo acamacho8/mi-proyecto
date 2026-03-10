@@ -5,7 +5,7 @@ declare global {
   interface Window { gapi: any; google: any; }
 }
 
-const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID!;
+const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "283123145928-1l7vbsufcajsaidkk7n1uv9p7ql7ldah.apps.googleusercontent.com";
 const API_KEY   = process.env.NEXT_PUBLIC_GOOGLE_API_KEY ?? "";
 const SCOPE     = "https://www.googleapis.com/auth/drive.readonly";
 
