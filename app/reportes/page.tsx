@@ -225,21 +225,36 @@ export default function ReportesPage() {
                           <label style={{ fontSize: "11px", color: "#555", fontWeight: "700", display: "block", marginBottom: "6px" }}>
                             📎 {label}
                           </label>
-                          <label style={{
-                            display: "flex", alignItems: "center", gap: "8px",
-                            padding: "8px 10px", borderRadius: "6px", cursor: "pointer",
-                            border: `1px dashed ${val ? "#27AE60" : "#bbb"}`,
-                            backgroundColor: val ? "#f0fff4" : "white",
-                            fontSize: "12px", color: val ? "#27AE60" : "#888",
-                          }}>
-                            <span>{val ? "✓ Cargado" : "Seleccionar imagen"}</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              style={{ display: "none" }}
-                              onChange={e => handleImagen(i, tipo, e.target.files?.[0] ?? null)}
-                            />
-                          </label>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                            <label style={{
+                              display: "flex", alignItems: "center", gap: "8px",
+                              padding: "8px 10px", borderRadius: "6px", cursor: "pointer",
+                              border: `1px dashed ${val ? "#27AE60" : "#bbb"}`,
+                              backgroundColor: val ? "#f0fff4" : "white",
+                              fontSize: "12px", color: val ? "#27AE60" : "#888",
+                            }}>
+                              <span>{val ? "✓ Cargado" : "📁 Subir archivo"}</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                style={{ display: "none" }}
+                                onChange={e => handleImagen(i, tipo, e.target.files?.[0] ?? null)}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => openDriveForField(i, tipo)}
+                              style={{
+                                display: "flex", alignItems: "center", gap: "6px",
+                                padding: "8px 10px", borderRadius: "6px", cursor: "pointer",
+                                border: "1px solid #4285F4", backgroundColor: "white",
+                                fontSize: "12px", color: "#4285F4", fontWeight: "600",
+                              }}
+                            >
+                              <img src="https://www.gstatic.com/images/branding/product/1x/drive_2020q4_48dp.png" alt="Drive" style={{ width: "14px", height: "14px" }} />
+                              Seleccionar desde Drive
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
