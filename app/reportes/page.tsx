@@ -22,9 +22,21 @@ const metodosPago = [
   { label: "Depósito Banco", moneda: "Bs" },
 ];
 
+const sistemaMetodos = [
+  { label: "Punto de Venta",    moneda: "Bs" },
+  { label: "Pago Móvil",        moneda: "Bs" },
+  { label: "Efectivo Tienda",   moneda: "Bs" },
+  { label: "Efectivo Tienda",   moneda: "$"  },
+  { label: "Efectivo Delivery", moneda: "Bs" },
+  { label: "Efectivo Delivery", moneda: "$"  },
+  { label: "Zelle",             moneda: "$"  },
+  { label: "Depósito Banco",    moneda: "Bs" },
+];
+
 const initialDia = () => {
   const obj: any = { tasa: "" };
   metodosPago.forEach(m => { obj[`${m.label}_${m.moneda}`] = ""; });
+  sistemaMetodos.forEach(m => { obj[`sist_${m.label}_${m.moneda}`] = ""; });
   return obj;
 };
 
@@ -161,6 +173,28 @@ export default function ReportesPage() {
                         <input placeholder={`0.00 ${metodo.moneda}`} value={dias[i][`${metodo.label}_${metodo.moneda}`]} onChange={e => updateDia(i, `${metodo.label}_${metodo.moneda}`, e.target.value)} style={{ width: "100%", padding: "8px 10px", border: `1px solid ${metodo.moneda === "$" ? "#d5f5e3" : "#eee"}`, borderRadius: "6px", fontSize: "13px", boxSizing: "border-box" }} />
                       </div>
                     ))}
+                  </div>
+
+                  {/* Valores del Sistema (Reporte Z) */}
+                  <div style={{ padding: "12px 16px", borderTop: "1px solid #eee", backgroundColor: "#f0f4ff" }}>
+                    <div style={{ fontSize: "12px", fontWeight: "700", color: "#2C3E50", marginBottom: "10px" }}>
+                      📊 Valores del Sistema (Reporte Z)
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                      {sistemaMetodos.map((m, j) => (
+                        <div key={j}>
+                          <label style={{ fontSize: "11px", color: "#555", fontWeight: "600", display: "block", marginBottom: "4px" }}>
+                            {m.label} <span style={{ color: m.moneda === "$" ? "#27AE60" : "#2980B9" }}>{m.moneda}</span>
+                          </label>
+                          <input
+                            placeholder={`0.00 ${m.moneda}`}
+                            value={dias[i][`sist_${m.label}_${m.moneda}`]}
+                            onChange={e => updateDia(i, `sist_${m.label}_${m.moneda}`, e.target.value)}
+                            style={{ width: "100%", padding: "8px 10px", border: "1px solid #c5d3e8", borderRadius: "6px", fontSize: "13px", boxSizing: "border-box", backgroundColor: "white" }}
+                          />
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Carga de imágenes */}

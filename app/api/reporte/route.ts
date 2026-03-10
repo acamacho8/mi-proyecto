@@ -48,13 +48,43 @@ export async function POST(req: NextRequest) {
     const tasa = num(dia.tasa);
     const fecha = addDays(semana, i);
 
+    const pct = num(porcentaje) / 100;
+
+    // Valores del sistema (Reporte Z) — ingresados manualmente
+    const sistBsToUsd = (key: string) => tasa > 0 ? num(dia[key]) / tasa * pct : 0;
+    const sistUsd     = (key: string) => num(dia[key]) * pct;
+
     const metodos = [
-      { label: "Efectivo Tienda",  bs: num(dia["Efectivo Tienda_Bs"]),   usd: num(dia["Efectivo Tienda_$"]) },
-      { label: "Efectivo Delivery",bs: num(dia["Efectivo Delivery_Bs"]), usd: num(dia["Efectivo Delivery_$"]) },
-      { label: "Punto de Venta",   bs: num(dia["Punto de Venta_Bs"]),    usd: 0 },
-      { label: "Pago Móvil",       bs: num(dia["Pago Móvil_Bs"]),        usd: 0 },
-      { label: "Zelle",            bs: 0,                                 usd: num(dia["Zelle_$"]) },
-      { label: "Depósito Banco",   bs: num(dia["Depósito Banco_Bs"]),    usd: 0 },
+      {
+        label: "Efectivo Tienda",
+        bs: num(dia["Efectivo Tienda_Bs"]),   usd: num(dia["Efectivo Tienda_$"]),
+        sist: sistBsToUsd("sist_Efectivo Tienda_Bs") + sistUsd("sist_Efectivo Tienda_$"),
+      },
+      {
+        label: "Efectivo Delivery",
+        bs: num(dia["Efectivo Delivery_Bs"]), usd: num(dia["Efectivo Delivery_$"]),
+        sist: sistBsToUsd("sist_Efectivo Delivery_Bs") + sistUsd("sist_Efectivo Delivery_$"),
+      },
+      {
+        label: "Punto de Venta",
+        bs: num(dia["Punto de Venta_Bs"]),    usd: 0,
+        sist: sistBsToUsd("sist_Punto de Venta_Bs"),
+      },
+      {
+        label: "Pago Móvil",
+        bs: num(dia["Pago Móvil_Bs"]),        usd: 0,
+        sist: sistBsToUsd("sist_Pago Móvil_Bs"),
+      },
+      {
+        label: "Zelle",
+        bs: 0,                                 usd: num(dia["Zelle_$"]),
+        sist: sistUsd("sist_Zelle_$"),
+      },
+      {
+        label: "Depósito Banco",
+        bs: num(dia["Depósito Banco_Bs"]),    usd: 0,
+        sist: sistBsToUsd("sist_Depósito Banco_Bs"),
+      },
     ];
 
     const calc = metodos.map(m => ({
@@ -65,7 +95,7 @@ export async function POST(req: NextRequest) {
     const totBs    = calc.reduce((s, m) => s + m.bs, 0);
     const totEquiv = calc.reduce((s, m) => s + m.equiv, 0);
     const totUsd   = calc.reduce((s, m) => s + m.usd, 0);
-    const totSist  = totEquiv + totUsd;
+    const totSist  = calc.reduce((s, m) => s + m.sist, 0);
 
     const ws = wb.addWorksheet(diaName);
 
@@ -131,31 +161,37 @@ export async function POST(req: NextRequest) {
     ws.getCell("F7").value = "Ingreso $";    ws.getCell("F7").font = BOLD;
 
     // ── Row 8: TOTALES ─────────────────────────────────────────────────────────
+    const totContado = totEquiv + totUsd;
+    const totSobrante = totSist > 0 ? totContado - totSist : 0;
+
     const tot = ws.getRow(8);
     const totCells: [number, string | number][] = [
       [1, "TOTALES"],
-      [2, dash(totBs)],   [3, "$"],
-      [4, dash(totEquiv)],[5, "$"],
-      [6, dash(totUsd)],  [7, "$"],
-      [8, dash(totSist)], [9, "$"],
-      [10, ""],
+      [2, dash(totBs)],       [3, "$"],
+      [4, dash(totEquiv)],    [5, "$"],
+      [6, dash(totUsd)],      [7, "$"],
+      [8, dash(totSist)],     [9, "$"],
+      [10, totSist > 0 ? dash(totSobrante) : ""],
     ];
     totCells.forEach(([col, val]) => {
       const c = tot.getCell(col);
       c.value = val;
       c.font = BOLD;
     });
-    [2, 4, 6, 8].forEach(col => { tot.getCell(col).numFmt = NUM_FMT; });
+    [2, 4, 6, 8, 10].forEach(col => { tot.getCell(col).numFmt = NUM_FMT; });
 
     // ── Rows 10+: Métodos de pago ──────────────────────────────────────────────
     calc.forEach((m, idx) => {
+      const contado = m.equiv + m.usd;
+      const sobrante = m.sist > 0 ? contado - m.sist : null;
+
       const row = ws.getRow(10 + idx);
       row.getCell(1).value = m.label;
-      row.getCell(2).value = dash(m.bs);     row.getCell(3).value = "$";
-      row.getCell(4).value = dash(m.equiv);  row.getCell(5).value = "$";
-      row.getCell(6).value = dash(m.usd);    row.getCell(7).value = "$";
-      row.getCell(8).value = "";             row.getCell(9).value = "$";
-      row.getCell(10).value = "";
+      row.getCell(2).value = dash(m.bs);                  row.getCell(3).value = "$";
+      row.getCell(4).value = dash(m.equiv);               row.getCell(5).value = "$";
+      row.getCell(6).value = dash(m.usd);                 row.getCell(7).value = "$";
+      row.getCell(8).value = m.sist > 0 ? dash(m.sist) : ""; row.getCell(9).value = "$";
+      row.getCell(10).value = sobrante !== null ? dash(sobrante) : "";
 
       [2, 4, 6].forEach(col => {
         const c = row.getCell(col);
