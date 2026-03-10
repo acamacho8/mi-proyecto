@@ -76,7 +76,7 @@ export default function ReportesPage() {
   const openDriveForField = async (i: number, tipo: "reporteZ" | "cierrePDV") => {
     pickerTarget.current = { i, tipo };
     try {
-      await openDrive();
+      await openDrive(diasSemana[i]);
     } catch (err: any) {
       console.error("Drive Picker error:", err);
       alert("Error al abrir Google Drive: " + (err?.message ?? String(err)));
