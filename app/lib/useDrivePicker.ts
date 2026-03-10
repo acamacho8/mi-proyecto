@@ -20,21 +20,34 @@ function loadScript(src: string): Promise<void> {
   });
 }
 
+async function findFolderByName(name: string, token: string): Promise<string | null> {
+  try {
+    const q = encodeURIComponent(`name contains '${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+    const resp = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&pageSize=10`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const data = await resp.json();
+    if (data.files?.length > 0) return data.files[0].id;
+  } catch {
+    // silently fall back to showing all
+  }
+  return null;
+}
+
 export function useDrivePicker(
   onFilePicked: (dataUrl: string) => void,
 ) {
   const tokenRef = useRef<string | null>(null);
 
-  const openPicker = useCallback(async () => {
+  const openPicker = useCallback(async (folderName?: string) => {
     await Promise.all([
       loadScript("https://apis.google.com/js/api.js"),
       loadScript("https://accounts.google.com/gsi/client"),
     ]);
 
-    // Cargar módulo picker de gapi
     await new Promise<void>(resolve => window.gapi.load("picker", resolve));
 
-    // Obtener access token si no tenemos uno
     if (!tokenRef.current) {
       tokenRef.current = await new Promise<string>((resolve, reject) => {
         const client = window.google.accounts.oauth2.initTokenClient({
@@ -49,8 +62,22 @@ export function useDrivePicker(
       });
     }
 
+    // Buscar carpeta por nombre del día si se especificó
+    let folderId: string | null = null;
+    if (folderName) {
+      folderId = await findFolderByName(folderName, tokenRef.current);
+    }
+
+    const view = new window.google.picker.DocsView()
+      .setIncludeFolders(true)
+      .setMimeTypes("image/jpeg,image/png,image/gif,image/webp,image/jpg");
+
+    if (folderId) {
+      view.setParent(folderId);
+    }
+
     const builder = new window.google.picker.PickerBuilder()
-      .addView(window.google.picker.ViewId.DOCS_IMAGES)
+      .addView(view)
       .setOAuthToken(tokenRef.current)
       .setCallback(async (data: any) => {
         if (data.action !== window.google.picker.Action.PICKED) return;
@@ -65,7 +92,6 @@ export function useDrivePicker(
         );
 
         if (resp.status === 401) {
-          // Token expirado: forzar nuevo login la próxima vez
           tokenRef.current = null;
           alert("Sesión de Google expirada. Intenta de nuevo.");
           return;
