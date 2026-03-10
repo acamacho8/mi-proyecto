@@ -12,7 +12,7 @@ export default function Home() {
       fontFamily: "Inter, sans-serif"
     }}>
       <div style={{
-        backgroundColor: "black",
+        backgroundColor: "white",
         borderRadius: "12px",
         padding: "48px",
         boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
