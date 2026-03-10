@@ -61,6 +61,23 @@ export default function ReportesPage() {
   const [imagenes, setImagenes] = useState(diasSemana.map(() => initialImagenes()));
   const [descargando, setDescargando] = useState(false);
 
+  // Google Drive Picker
+  const pickerTarget = useRef<{ i: number; tipo: "reporteZ" | "cierrePDV" } | null>(null);
+  const handleDrivePicked = useCallback((dataUrl: string) => {
+    if (!pickerTarget.current) return;
+    const { i, tipo } = pickerTarget.current;
+    setImagenes(prev => {
+      const nuevo = [...prev];
+      nuevo[i] = { ...nuevo[i], [tipo]: dataUrl };
+      return nuevo;
+    });
+  }, []);
+  const openDrive = useDrivePicker(handleDrivePicked);
+  const openDriveForField = (i: number, tipo: "reporteZ" | "cierrePDV") => {
+    pickerTarget.current = { i, tipo };
+    openDrive();
+  };
+
   const updateDia = (i: number, campo: string, valor: string) => {
     setDias(prev => {
       const nuevo = [...prev];
