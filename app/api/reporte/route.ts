@@ -27,8 +27,18 @@ const BOLD   = { bold: true };
 const CENTER = { horizontal: "center" as const };
 const NUM_FMT = "#,##0.00";
 
+function extensionDeBase64(dataUrl: string): "jpeg" | "png" | "gif" {
+  if (dataUrl.startsWith("data:image/png")) return "png";
+  if (dataUrl.startsWith("data:image/gif")) return "gif";
+  return "jpeg";
+}
+
+function base64Puro(dataUrl: string): string {
+  return dataUrl.split(",")[1] ?? dataUrl;
+}
+
 export async function POST(req: NextRequest) {
-  const { tienda, semana, porcentaje, dias } = await req.json();
+  const { tienda, semana, porcentaje, dias, imagenes } = await req.json();
   const tiendaNombre = (tienda.split(" - ")[1] || tienda).toUpperCase();
 
   const wb = new ExcelJS.Workbook();
@@ -164,6 +174,29 @@ export async function POST(req: NextRequest) {
         };
       }
     }
+
+    // ── Imágenes ───────────────────────────────────────────────────────────────
+    const imgs = imagenes?.[i];
+    let filaImg = 18;
+
+    const agregarImagen = (dataUrl: string, titulo: string) => {
+      ws.getCell(`A${filaImg}`).value = titulo;
+      ws.getCell(`A${filaImg}`).font = { bold: true, color: { argb: "FFC0392B" } };
+      filaImg++;
+
+      const imgId = wb.addImage({
+        base64: base64Puro(dataUrl),
+        extension: extensionDeBase64(dataUrl),
+      });
+      ws.addImage(imgId, {
+        tl: { col: 0, row: filaImg - 1 },
+        ext: { width: 600, height: 350 },
+      });
+      filaImg += 20; // espacio para la imagen (aprox 20 filas)
+    };
+
+    if (imgs?.reporteZ)  agregarImagen(imgs.reporteZ,  "REPORTE Z");
+    if (imgs?.cierrePDV) agregarImagen(imgs.cierrePDV, "CIERRE PUNTO DE VENTA");
   });
 
   const buf = await wb.xlsx.writeBuffer();

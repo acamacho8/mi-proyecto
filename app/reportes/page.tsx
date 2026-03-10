@@ -28,12 +28,24 @@ const initialDia = () => {
   return obj;
 };
 
+const initialImagenes = () => ({ reporteZ: null as string | null, cierrePDV: null as string | null });
+
+function leerBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target?.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function ReportesPage() {
   const [tienda, setTienda] = useState("");
   const [semana, setSemana] = useState("");
   const [porcentaje, setPorcentaje] = useState("70");
   const [paso, setPaso] = useState(1);
   const [dias, setDias] = useState(diasSemana.map(() => initialDia()));
+  const [imagenes, setImagenes] = useState(diasSemana.map(() => initialImagenes()));
   const [descargando, setDescargando] = useState(false);
 
   const updateDia = (i: number, campo: string, valor: string) => {
@@ -44,19 +56,29 @@ export default function ReportesPage() {
     });
   };
 
+  const handleImagen = async (i: number, tipo: "reporteZ" | "cierrePDV", file: File | null) => {
+    if (!file) return;
+    const base64 = await leerBase64(file);
+    setImagenes(prev => {
+      const nuevo = [...prev];
+      nuevo[i] = { ...nuevo[i], [tipo]: base64 };
+      return nuevo;
+    });
+  };
+
   const descargarReporte = async () => {
     setDescargando(true);
     try {
       const res = await fetch("/api/reporte", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tienda, semana, porcentaje, dias }),
+        body: JSON.stringify({ tienda, semana, porcentaje, dias, imagenes }),
       });
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `reporte-${tienda}-${semana}.xlsx`;
+      a.download = `cierre-${tienda}-${semana}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
@@ -140,6 +162,36 @@ export default function ReportesPage() {
                       </div>
                     ))}
                   </div>
+
+                  {/* Carga de imágenes */}
+                  <div style={{ padding: "12px 16px", borderTop: "1px solid #eee", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", backgroundColor: "#fafafa" }}>
+                    {(["reporteZ", "cierrePDV"] as const).map(tipo => {
+                      const label = tipo === "reporteZ" ? "Reporte Z" : "Cierre Punto de Venta";
+                      const val = imagenes[i][tipo];
+                      return (
+                        <div key={tipo}>
+                          <label style={{ fontSize: "11px", color: "#555", fontWeight: "700", display: "block", marginBottom: "6px" }}>
+                            📎 {label}
+                          </label>
+                          <label style={{
+                            display: "flex", alignItems: "center", gap: "8px",
+                            padding: "8px 10px", borderRadius: "6px", cursor: "pointer",
+                            border: `1px dashed ${val ? "#27AE60" : "#bbb"}`,
+                            backgroundColor: val ? "#f0fff4" : "white",
+                            fontSize: "12px", color: val ? "#27AE60" : "#888",
+                          }}>
+                            <span>{val ? "✓ Cargado" : "Seleccionar imagen"}</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              style={{ display: "none" }}
+                              onChange={e => handleImagen(i, tipo, e.target.files?.[0] ?? null)}
+                            />
+                          </label>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               ))}
             </div>
@@ -158,7 +210,10 @@ export default function ReportesPage() {
               <div style={{ fontWeight: "700", color: "#C0392B", marginBottom: "12px" }}>📋 Resumen</div>
               <div style={{ fontSize: "14px", color: "#333", marginBottom: "8px" }}>🏪 Tienda: <strong>{tienda}</strong></div>
               <div style={{ fontSize: "14px", color: "#333", marginBottom: "8px" }}>📅 Semana: <strong>{semana}</strong></div>
-              <div style={{ fontSize: "14px", color: "#333" }}>📊 Porcentaje: <strong>{porcentaje}%</strong></div>
+              <div style={{ fontSize: "14px", color: "#333", marginBottom: "8px" }}>📊 Porcentaje: <strong>{porcentaje}%</strong></div>
+              <div style={{ fontSize: "14px", color: "#333" }}>
+                📎 Imágenes cargadas: <strong>{imagenes.reduce((n, img) => n + (img.reporteZ ? 1 : 0) + (img.cierrePDV ? 1 : 0), 0)}</strong> / 14
+              </div>
             </div>
             <div style={{ display: "flex", gap: "12px" }}>
               <button onClick={() => setPaso(2)} style={{ flex: 1, padding: "14px", backgroundColor: "white", color: "#C0392B", border: "2px solid #C0392B", borderRadius: "8px", fontSize: "16px", fontWeight: "700", cursor: "pointer" }}>← Atrás</button>
@@ -175,7 +230,7 @@ export default function ReportesPage() {
             <button onClick={descargarReporte} disabled={descargando} style={{ width: "100%", padding: "14px", backgroundColor: descargando ? "#ddd" : "#C0392B", color: "white", border: "none", borderRadius: "8px", fontSize: "16px", fontWeight: "700", cursor: descargando ? "not-allowed" : "pointer", marginBottom: "12px" }}>
               {descargando ? "⏳ Generando..." : "⬇️ Descargar Excel"}
             </button>
-            <button onClick={() => { setPaso(1); setTienda(""); setSemana(""); setDias(diasSemana.map(() => initialDia())); }} style={{ width: "100%", padding: "14px", backgroundColor: "white", color: "#C0392B", border: "2px solid #C0392B", borderRadius: "8px", fontSize: "16px", fontWeight: "700", cursor: "pointer" }}>
+            <button onClick={() => { setPaso(1); setTienda(""); setSemana(""); setDias(diasSemana.map(() => initialDia())); setImagenes(diasSemana.map(() => initialImagenes())); }} style={{ width: "100%", padding: "14px", backgroundColor: "white", color: "#C0392B", border: "2px solid #C0392B", borderRadius: "8px", fontSize: "16px", fontWeight: "700", cursor: "pointer" }}>
               Generar otro reporte
             </button>
           </div>
