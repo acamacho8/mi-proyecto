@@ -73,9 +73,14 @@ export default function ReportesPage() {
     });
   }, []);
   const openDrive = useDrivePicker(handleDrivePicked);
-  const openDriveForField = (i: number, tipo: "reporteZ" | "cierrePDV") => {
+  const openDriveForField = async (i: number, tipo: "reporteZ" | "cierrePDV") => {
     pickerTarget.current = { i, tipo };
-    openDrive();
+    try {
+      await openDrive();
+    } catch (err: any) {
+      console.error("Drive Picker error:", err);
+      alert("Error al abrir Google Drive: " + (err?.message ?? String(err)));
+    }
   };
 
   const updateDia = (i: number, campo: string, valor: string) => {
