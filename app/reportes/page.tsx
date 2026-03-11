@@ -91,10 +91,18 @@ export default function ReportesPage() {
   const [imagenes, setImagenes] = useState(diasSemana.map(() => initialImagenes()));
   const [descargando, setDescargando] = useState(false);
   const [cargandoCRM, setCargandoCRM] = useState<number | null>(null);
+  const [cargandoTodos, setCargandoTodos] = useState(false);
   const [expandidos, setExpandidos] = useState<boolean[]>(diasSemana.map(() => false));
 
   const toggleExpandido = (i: number) =>
     setExpandidos(prev => prev.map((v, idx) => idx === i ? !v : v));
+
+  const cargarTodosCRM = async () => {
+    if (!tienda || !semana) return;
+    setCargandoTodos(true);
+    await Promise.all(diasSemana.map((_, i) => cargarDesdeCRM(i)));
+    setCargandoTodos(false);
+  };
 
   const cargarDesdeCRM = async (i: number) => {
     if (!tienda || !semana) return;
@@ -233,7 +241,16 @@ export default function ReportesPage() {
 
         {paso === 2 && (
           <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "32px", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
-            <h2 style={{ color: "#C0392B", marginBottom: "8px", fontSize: "22px" }}>Datos de Ventas por Día</h2>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
+              <h2 style={{ color: "#C0392B", fontSize: "22px", margin: 0 }}>Datos de Ventas por Día</h2>
+              <button
+                onClick={cargarTodosCRM}
+                disabled={cargandoTodos}
+                style={{ padding: "8px 16px", backgroundColor: cargandoTodos ? "#aaa" : "#C0392B", color: "white", border: "none", borderRadius: "8px", fontSize: "13px", fontWeight: "700", cursor: cargandoTodos ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}
+              >
+                {cargandoTodos ? "⏳ Cargando..." : "📥 Cargar 7 días"}
+              </button>
+            </div>
             <p style={{ color: "#888", marginBottom: "24px", fontSize: "14px" }}>{tienda} · Porcentaje: {porcentaje}%</p>
             <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "32px" }}>
               {diasSemana.map((dia, i) => (
