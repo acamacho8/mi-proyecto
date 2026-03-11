@@ -3,11 +3,9 @@ import { useState, useCallback, useRef } from "react";
 import { useDrivePicker } from "@/app/lib/useDrivePicker";
 
 const tiendas = [
-  "FQ01 - Chacao",
-  "FQ02 - Las Mercedes",
-  "FQ03 - Altamira",
-  "FQ04 - La Castellana",
-  "FQ05 - Bello Monte",
+  "FQ28 - El Marques",
+  "FQ01 - Sambil Caracas",
+  "FQ88 - Sambil La Candelaria",
 ];
 
 const diasSemana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
