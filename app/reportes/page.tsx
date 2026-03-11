@@ -252,17 +252,6 @@ export default function ReportesPage() {
                     <label style={{ fontSize: "12px", fontWeight: "700", color: "#888", whiteSpace: "nowrap" }}>Tasa de Cambio</label>
                     <input placeholder="0.00 Bs/$" value={dias[i].tasa} onChange={e => updateDia(i, "tasa", e.target.value)} style={{ flex: 1, padding: "6px 10px", border: "1px solid #F1C40F", borderRadius: "6px", fontSize: "13px", boxSizing: "border-box" }} />
                   </div>
-                  <div style={{ padding: "16px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                    {metodosPago.map((metodo, j) => (
-                      <div key={j}>
-                        <label style={{ fontSize: "11px", color: "#888", fontWeight: "600", display: "block", marginBottom: "4px" }}>
-                          {metodo.label} <span style={{ color: metodo.moneda === "$" ? "#27AE60" : "#C0392B" }}>{metodo.moneda}</span>
-                        </label>
-                        <input placeholder={`0.00 ${metodo.moneda}`} value={dias[i][`${metodo.label}_${metodo.moneda}`]} onChange={e => updateDia(i, `${metodo.label}_${metodo.moneda}`, e.target.value)} style={{ width: "100%", padding: "8px 10px", border: `1px solid ${metodo.moneda === "$" ? "#d5f5e3" : "#eee"}`, borderRadius: "6px", fontSize: "13px", boxSizing: "border-box" }} />
-                      </div>
-                    ))}
-                  </div>
-
                   {/* Valores del Sistema (Reporte Z) */}
                   <div style={{ padding: "12px 16px", borderTop: "1px solid #eee", backgroundColor: "#f0f4ff" }}>
                     <div style={{ fontSize: "12px", fontWeight: "700", color: "#2C3E50", marginBottom: "10px" }}>
