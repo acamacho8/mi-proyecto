@@ -43,6 +43,36 @@ const initialDia = () => {
 
 const initialImagenes = () => ({ reporteZ: null as string | null, cierrePDV: null as string | null });
 
+function calcularResumenDia(dia: any, pct: number) {
+  const n = (v: any) => parseFloat(String(v ?? "").replace(",", ".")) || 0;
+  const tasa = n(dia.tasa);
+  if (tasa <= 0) return null;
+
+  const metodos = [
+    { bsKey: "Efectivo Tienda_Bs",    usdKey: "Efectivo Tienda_$",    sBsKey: "sist_Efectivo Tienda_Bs",    sUsdKey: "sist_Efectivo Tienda_$" },
+    { bsKey: "Efectivo Delivery_Bs",  usdKey: "Efectivo Delivery_$",  sBsKey: "sist_Efectivo Delivery_Bs",  sUsdKey: "sist_Efectivo Delivery_$" },
+    { bsKey: "Punto de Venta_Bs",     usdKey: null,                   sBsKey: "sist_Punto de Venta_Bs",     sUsdKey: null },
+    { bsKey: "Pago Móvil_Bs",         usdKey: null,                   sBsKey: "sist_Pago Móvil_Bs",         sUsdKey: null },
+    { bsKey: null,                    usdKey: "Zelle_$",              sBsKey: null,                         sUsdKey: "sist_Zelle_$" },
+    { bsKey: "Depósito Banco_Bs",     usdKey: null,                   sBsKey: "sist_Depósito Banco_Bs",     sUsdKey: null },
+  ];
+
+  let contado = 0;
+  let sistema = 0;
+  for (const m of metodos) {
+    const bs  = m.bsKey  ? n(dia[m.bsKey])  : 0;
+    const usd = m.usdKey ? n(dia[m.usdKey]) : 0;
+    contado += bs / tasa + usd;
+
+    const sBs  = m.sBsKey  ? n(dia[m.sBsKey])  : 0;
+    const sUsd = m.sUsdKey ? n(dia[m.sUsdKey]) : 0;
+    sistema += (sBs / tasa + sUsd) * (pct / 100);
+  }
+
+  const sobrante = sistema > 0 ? contado - sistema : null;
+  return { contado, sistema, sobrante };
+}
+
 function leerBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -254,6 +284,36 @@ export default function ReportesPage() {
                       ))}
                     </div>
                   </div>
+
+                  {/* Resumen de cálculo en vivo */}
+                  {(() => {
+                    const r = calcularResumenDia(dias[i], parseFloat(porcentaje) || 0);
+                    if (!r) return null;
+                    const fmt = (v: number) => v.toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    const diff = r.sobrante;
+                    return (
+                      <div style={{ padding: "10px 16px", borderTop: "1px solid #eee", backgroundColor: "#f8f9fa", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        <div style={{ flex: 1, minWidth: "100px", textAlign: "center" }}>
+                          <div style={{ fontSize: "10px", color: "#888", fontWeight: "700", marginBottom: "2px" }}>CONTADO</div>
+                          <div style={{ fontSize: "14px", fontWeight: "700", color: "#2C3E50" }}>${fmt(r.contado)}</div>
+                        </div>
+                        {r.sistema > 0 && (
+                          <>
+                            <div style={{ flex: 1, minWidth: "100px", textAlign: "center" }}>
+                              <div style={{ fontSize: "10px", color: "#888", fontWeight: "700", marginBottom: "2px" }}>SISTEMA ({porcentaje}%)</div>
+                              <div style={{ fontSize: "14px", fontWeight: "700", color: "#2980B9" }}>${fmt(r.sistema)}</div>
+                            </div>
+                            <div style={{ flex: 1, minWidth: "100px", textAlign: "center" }}>
+                              <div style={{ fontSize: "10px", color: "#888", fontWeight: "700", marginBottom: "2px" }}>DIFERENCIA</div>
+                              <div style={{ fontSize: "14px", fontWeight: "700", color: diff !== null && diff >= 0 ? "#27AE60" : "#E74C3C" }}>
+                                {diff !== null ? (diff >= 0 ? "+" : "") + fmt(diff) : "—"}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Carga de imágenes */}
                   <div style={{ padding: "12px 16px", borderTop: "1px solid #eee", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", backgroundColor: "#fafafa" }}>
