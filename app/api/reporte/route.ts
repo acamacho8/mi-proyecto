@@ -87,13 +87,17 @@ export async function POST(req: NextRequest) {
       },
     ];
 
-    const calc = metodos.map(m => ({
-      label: m.label,
-      bs:    m.bs * pct,
-      usd:   m.usd * pct,
-      equiv: tasa > 0 ? m.bs / tasa * pct : 0,
-      sist:  m.sist,
-    }));
+    const calc = metodos.map(m => {
+      const esPOS = m.label === "Punto de Venta";
+      const factor = esPOS ? 1 : pct;
+      return {
+        label: m.label,
+        bs:    m.bs * factor,
+        usd:   m.usd * factor,
+        equiv: tasa > 0 ? m.bs / tasa * factor : 0,
+        sist:  m.sist,
+      };
+    });
 
     const totBs    = calc.reduce((s, m) => s + m.bs, 0);
     const totEquiv = calc.reduce((s, m) => s + m.equiv, 0);

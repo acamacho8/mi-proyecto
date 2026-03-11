@@ -49,20 +49,21 @@ function calcularResumenDia(dia: any, pct: number) {
   if (tasa <= 0) return null;
 
   const metodos = [
-    { bsKey: "Efectivo Tienda_Bs",    usdKey: "Efectivo Tienda_$",    sBsKey: "sist_Efectivo Tienda_Bs",    sUsdKey: "sist_Efectivo Tienda_$" },
-    { bsKey: "Efectivo Delivery_Bs",  usdKey: "Efectivo Delivery_$",  sBsKey: "sist_Efectivo Delivery_Bs",  sUsdKey: "sist_Efectivo Delivery_$" },
-    { bsKey: "Punto de Venta_Bs",     usdKey: null,                   sBsKey: "sist_Punto de Venta_Bs",     sUsdKey: null },
-    { bsKey: "Pago Móvil_Bs",         usdKey: null,                   sBsKey: "sist_Pago Móvil_Bs",         sUsdKey: null },
-    { bsKey: null,                    usdKey: "Zelle_$",              sBsKey: null,                         sUsdKey: "sist_Zelle_$" },
-    { bsKey: "Depósito Banco_Bs",     usdKey: null,                   sBsKey: "sist_Depósito Banco_Bs",     sUsdKey: null },
+    { pos: false, bsKey: "Efectivo Tienda_Bs",    usdKey: "Efectivo Tienda_$",    sBsKey: "sist_Efectivo Tienda_Bs",    sUsdKey: "sist_Efectivo Tienda_$" },
+    { pos: false, bsKey: "Efectivo Delivery_Bs",  usdKey: "Efectivo Delivery_$",  sBsKey: "sist_Efectivo Delivery_Bs",  sUsdKey: "sist_Efectivo Delivery_$" },
+    { pos: true,  bsKey: "Punto de Venta_Bs",     usdKey: null,                   sBsKey: "sist_Punto de Venta_Bs",     sUsdKey: null },
+    { pos: false, bsKey: "Pago Móvil_Bs",         usdKey: null,                   sBsKey: "sist_Pago Móvil_Bs",         sUsdKey: null },
+    { pos: false, bsKey: null,                    usdKey: "Zelle_$",              sBsKey: null,                         sUsdKey: "sist_Zelle_$" },
+    { pos: false, bsKey: "Depósito Banco_Bs",     usdKey: null,                   sBsKey: "sist_Depósito Banco_Bs",     sUsdKey: null },
   ];
 
   let contado = 0;
   let sistema = 0;
   for (const m of metodos) {
+    const factor = m.pos ? 1 : (pct / 100);
     const bs  = m.bsKey  ? n(dia[m.bsKey])  : 0;
     const usd = m.usdKey ? n(dia[m.usdKey]) : 0;
-    contado += (bs / tasa + usd) * (pct / 100);
+    contado += (bs / tasa + usd) * factor;
 
     const sBs  = m.sBsKey  ? n(dia[m.sBsKey])  : 0;
     const sUsd = m.sUsdKey ? n(dia[m.sUsdKey]) : 0;
