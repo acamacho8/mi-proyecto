@@ -62,7 +62,7 @@ function calcularResumenDia(dia: any, pct: number) {
   for (const m of metodos) {
     const bs  = m.bsKey  ? n(dia[m.bsKey])  : 0;
     const usd = m.usdKey ? n(dia[m.usdKey]) : 0;
-    contado += bs / tasa + usd;
+    contado += (bs / tasa + usd) * (pct / 100);
 
     const sBs  = m.sBsKey  ? n(dia[m.sBsKey])  : 0;
     const sUsd = m.sUsdKey ? n(dia[m.sUsdKey]) : 0;
@@ -326,7 +326,7 @@ export default function ReportesPage() {
                     return (
                       <div style={{ padding: "10px 16px", borderTop: "1px solid #eee", backgroundColor: "#f8f9fa", display: "flex", gap: "8px", flexWrap: "wrap" }}>
                         <div style={{ flex: 1, minWidth: "100px", textAlign: "center" }}>
-                          <div style={{ fontSize: "10px", color: "#888", fontWeight: "700", marginBottom: "2px" }}>CONTADO</div>
+                          <div style={{ fontSize: "10px", color: "#888", fontWeight: "700", marginBottom: "2px" }}>CONTADO ({porcentaje}%)</div>
                           <div style={{ fontSize: "14px", fontWeight: "700", color: "#2C3E50" }}>${fmt(r.contado)}</div>
                         </div>
                         {r.sistema > 0 && (
