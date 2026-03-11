@@ -23,48 +23,30 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [countersRes, transRes] = await Promise.all([
+    const [countersRes, transRes] = await Promise.allSettled([
       fetch(`${base}/counters-by-day?date=${date}&shopCode=${shopCode}`, { cache: "no-store" }),
       fetch(`${base}/trans-by-day?date=${date}&shopCode=${shopCode}`, { cache: "no-store" }),
     ]);
 
-    if (!countersRes.ok) throw new Error(`CRM counters ${countersRes.status}`);
-    if (!transRes.ok)    throw new Error(`CRM trans ${transRes.status}`);
+    // Parsear respuestas de forma independiente (fallo parcial permitido)
+    let countersData: { success: boolean; counters: Array<{ rate: number; vesSisTienda: number; usdSisTienda: number; vesSisDelivery: number; usdSisDelivery: number; puntoSis: number; movilSis: number; zelleSis: number }> } | null = null;
+    let transData: { success: boolean; orders: Array<{ mode: string; pagoPuntoBs: number; pagoMovilBs: number; cash: number; cashVuelto: number; pagoEfectivoBs: number; pagoEfectivoBsVuelto: number; zelle: number }> } | null = null;
 
-    const countersData = await countersRes.json() as {
-      success: boolean;
-      counters: Array<{
-        rate: number;
-        vesSisTienda: number;
-        usdSisTienda: number;
-        vesSisDelivery: number;
-        usdSisDelivery: number;
-        puntoSis: number;
-        movilSis: number;
-        zelleSis: number;
-      }>;
-    };
+    if (countersRes.status === "fulfilled" && countersRes.value.ok) {
+      try { countersData = await countersRes.value.json(); } catch { /* ignore */ }
+    }
+    if (transRes.status === "fulfilled" && transRes.value.ok) {
+      try { transData = await transRes.value.json(); } catch { /* ignore */ }
+    }
 
-    const transData = await transRes.json() as {
-      success: boolean;
-      orders: Array<{
-        mode: string;
-        pagoPuntoBs: number;
-        pagoMovilBs: number;
-        cash: number;
-        cashVuelto: number;
-        pagoEfectivoBs: number;
-        pagoEfectivoBsVuelto: number;
-        zelle: number;
-      }>;
-    };
-
-    if (!countersData.success || !countersData.counters?.length) {
-      return NextResponse.json({ error: "Sin datos para esa fecha/tienda" }, { status: 404 });
+    if (!countersData && !transData) {
+      const c = countersRes.status === "fulfilled" ? countersRes.value.status : "error";
+      const t = transRes.status === "fulfilled" ? transRes.value.status : "error";
+      return NextResponse.json({ error: `Sin datos del CRM (counters: ${c}, trans: ${t})` }, { status: 502 });
     }
 
     // ── Sistema (Reporte Z) desde counters ─────────────────────────────────────
-    const counters = countersData.counters;
+    const counters = countersData?.counters ?? [];
     const rates = counters.map(c => c.rate).filter(r => r > 0);
     const tasa = rates.length > 0 ? rates.reduce((s, r) => s + r, 0) / rates.length : 0;
 
@@ -72,7 +54,7 @@ export async function GET(req: NextRequest) {
       counters.reduce((s, c) => s + (Number(c[key]) || 0), 0);
 
     // ── OA (conteo real) desde trans ────────────────────────────────────────────
-    const orders = transData.orders ?? [];
+    const orders = transData?.orders ?? [];
 
     const sumTrans = (
       fn: (o: (typeof orders)[0]) => number,
