@@ -88,8 +88,11 @@ export async function POST(req: NextRequest) {
     ];
 
     const calc = metodos.map(m => ({
-      ...m,
-      equiv: tasa > 0 ? m.bs / tasa : 0,
+      label: m.label,
+      bs:    m.bs * pct,
+      usd:   m.usd * pct,
+      equiv: tasa > 0 ? m.bs / tasa * pct : 0,
+      sist:  m.sist,
     }));
 
     const totBs    = calc.reduce((s, m) => s + m.bs, 0);
