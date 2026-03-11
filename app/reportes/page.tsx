@@ -60,6 +60,30 @@ export default function ReportesPage() {
   const [dias, setDias] = useState(diasSemana.map(() => initialDia()));
   const [imagenes, setImagenes] = useState(diasSemana.map(() => initialImagenes()));
   const [descargando, setDescargando] = useState(false);
+  const [cargandoCRM, setCargandoCRM] = useState<number | null>(null);
+
+  const cargarDesdeCRM = async (i: number) => {
+    if (!tienda || !semana) return;
+    const shopCode = tienda.split(" ")[0]; // "FQ01 - Chacao" → "FQ01"
+    const fecha = new Date(semana + "T00:00:00");
+    fecha.setDate(fecha.getDate() + i);
+    const date = fecha.toISOString().split("T")[0];
+    setCargandoCRM(i);
+    try {
+      const res = await fetch(`/api/crm-dia?date=${date}&shopCode=${shopCode}`);
+      const json = await res.json();
+      if (json.error) { alert("CRM: " + json.error); return; }
+      setDias(prev => {
+        const nuevo = [...prev];
+        nuevo[i] = { ...nuevo[i], ...json };
+        return nuevo;
+      });
+    } catch {
+      alert("Error al conectar con el CRM");
+    } finally {
+      setCargandoCRM(null);
+    }
+  };
 
   // Google Drive Picker
   const pickerTarget = useRef<{ i: number; tipo: "reporteZ" | "cierrePDV" } | null>(null);
@@ -181,7 +205,18 @@ export default function ReportesPage() {
                 <div key={i} style={{ border: "2px solid #eee", borderRadius: "8px", overflow: "hidden" }}>
                   <div style={{ backgroundColor: "#C0392B", padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ color: "white", fontWeight: "700", fontSize: "14px" }}>{dia}</span>
-                    <span style={{ color: "#F1C40F", fontWeight: "700", fontSize: "13px" }}>{porcentaje}%</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <button
+                        type="button"
+                        onClick={() => cargarDesdeCRM(i)}
+                        disabled={cargandoCRM === i}
+                        title="Cargar valores del sistema desde el CRM"
+                        style={{ padding: "4px 10px", backgroundColor: cargandoCRM === i ? "#aaa" : "#F1C40F", color: "#C0392B", border: "none", borderRadius: "5px", fontSize: "12px", fontWeight: "700", cursor: cargandoCRM === i ? "not-allowed" : "pointer" }}
+                      >
+                        {cargandoCRM === i ? "⏳" : "📥 CRM"}
+                      </button>
+                      <span style={{ color: "#F1C40F", fontWeight: "700", fontSize: "13px" }}>{porcentaje}%</span>
+                    </div>
                   </div>
                   <div style={{ padding: "12px 16px", backgroundColor: "#fffbea", borderBottom: "1px solid #eee", display: "flex", alignItems: "center", gap: "12px" }}>
                     <label style={{ fontSize: "12px", fontWeight: "700", color: "#888", whiteSpace: "nowrap" }}>Tasa de Cambio</label>
