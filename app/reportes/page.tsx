@@ -91,6 +91,10 @@ export default function ReportesPage() {
   const [imagenes, setImagenes] = useState(diasSemana.map(() => initialImagenes()));
   const [descargando, setDescargando] = useState(false);
   const [cargandoCRM, setCargandoCRM] = useState<number | null>(null);
+  const [expandidos, setExpandidos] = useState<boolean[]>(diasSemana.map(() => false));
+
+  const toggleExpandido = (i: number) =>
+    setExpandidos(prev => prev.map((v, idx) => idx === i ? !v : v));
 
   const cargarDesdeCRM = async (i: number) => {
     if (!tienda || !semana) return;
@@ -108,6 +112,7 @@ export default function ReportesPage() {
         nuevo[i] = { ...nuevo[i], ...json };
         return nuevo;
       });
+      setExpandidos(prev => prev.map((v, idx) => idx === i ? true : v));
     } catch {
       alert("Error al conectar con el CRM");
     } finally {
@@ -232,22 +237,43 @@ export default function ReportesPage() {
             <p style={{ color: "#888", marginBottom: "24px", fontSize: "14px" }}>{tienda} · Porcentaje: {porcentaje}%</p>
             <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "32px" }}>
               {diasSemana.map((dia, i) => (
-                <div key={i} style={{ border: "2px solid #eee", borderRadius: "8px", overflow: "hidden" }}>
-                  <div style={{ backgroundColor: "#C0392B", padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ color: "white", fontWeight: "700", fontSize: "14px" }}>{dia}</span>
+                <div key={i} style={{ border: `2px solid ${expandidos[i] ? "#C0392B" : "#eee"}`, borderRadius: "8px", overflow: "hidden", transition: "border-color 0.2s" }}>
+                  <div
+                    onClick={() => toggleExpandido(i)}
+                    style={{ backgroundColor: expandidos[i] ? "#C0392B" : "#f7f7f7", padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", userSelect: "none" }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <span style={{ color: expandidos[i] ? "white" : "#333", fontWeight: "700", fontSize: "14px" }}>{dia}</span>
+                      {!expandidos[i] && (() => {
+                        const r = calcularResumenDia(dias[i], parseFloat(porcentaje) || 0);
+                        if (!r) return null;
+                        const fmt = (v: number) => v.toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                        return (
+                          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                            <span style={{ fontSize: "12px", color: "#888" }}>Sist: <strong style={{ color: "#2980B9" }}>${fmt(r.sistema)}</strong></span>
+                            {r.sobrante !== null && (
+                              <span style={{ fontSize: "12px", fontWeight: "700", color: r.sobrante >= 0 ? "#27AE60" : "#E74C3C" }}>
+                                {r.sobrante >= 0 ? "+" : ""}{fmt(r.sobrante)}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                       <button
                         type="button"
-                        onClick={() => cargarDesdeCRM(i)}
+                        onClick={e => { e.stopPropagation(); cargarDesdeCRM(i); }}
                         disabled={cargandoCRM === i}
                         title="Cargar valores del sistema desde el CRM"
                         style={{ padding: "4px 10px", backgroundColor: cargandoCRM === i ? "#aaa" : "#F1C40F", color: "#C0392B", border: "none", borderRadius: "5px", fontSize: "12px", fontWeight: "700", cursor: cargandoCRM === i ? "not-allowed" : "pointer" }}
                       >
                         {cargandoCRM === i ? "⏳" : "📥 CRM"}
                       </button>
-                      <span style={{ color: "#F1C40F", fontWeight: "700", fontSize: "13px" }}>{porcentaje}%</span>
+                      <span style={{ color: expandidos[i] ? "#F1C40F" : "#aaa", fontWeight: "700", fontSize: "13px" }}>{expandidos[i] ? "▲" : "▼"}</span>
                     </div>
                   </div>
+                  {expandidos[i] && <>
                   <div style={{ padding: "12px 16px", backgroundColor: "#fffbea", borderBottom: "1px solid #eee", display: "flex", alignItems: "center", gap: "12px" }}>
                     <label style={{ fontSize: "12px", fontWeight: "700", color: "#888", whiteSpace: "nowrap" }}>Tasa de Cambio</label>
                     <input placeholder="0.00 Bs/$" value={dias[i].tasa} onChange={e => updateDia(i, "tasa", e.target.value)} style={{ flex: 1, padding: "6px 10px", border: "1px solid #F1C40F", borderRadius: "6px", fontSize: "13px", boxSizing: "border-box" }} />
@@ -348,6 +374,7 @@ export default function ReportesPage() {
                       );
                     })}
                   </div>
+                  </>}
                 </div>
               ))}
             </div>
