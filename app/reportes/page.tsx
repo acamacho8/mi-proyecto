@@ -84,7 +84,7 @@ function leerBase64(file: File): Promise<string> {
 export default function ReportesPage() {
   const [tienda, setTienda] = useState("");
   const [semana, setSemana] = useState("");
-  const [porcentaje, setPorcentaje] = useState("70");
+  const [porcentaje, setPorcentaje] = useState("75");
   const [paso, setPaso] = useState(1);
   const [dias, setDias] = useState(diasSemana.map(() => initialDia()));
   const [imagenes, setImagenes] = useState(diasSemana.map(() => initialImagenes()));
@@ -229,7 +229,7 @@ export default function ReportesPage() {
             <div style={{ marginBottom: "32px" }}>
               <label style={{ display: "block", fontWeight: "600", marginBottom: "8px", color: "#333" }}>Porcentaje a aplicar</label>
               <div style={{ display: "flex", gap: "12px" }}>
-                {["70", "75"].map(p => (
+                {["75", "80"].map(p => (
                   <button key={p} onClick={() => setPorcentaje(p)} style={{ flex: 1, padding: "12px", border: `2px solid ${porcentaje === p ? "#C0392B" : "#eee"}`, borderRadius: "8px", fontSize: "16px", fontWeight: "700", backgroundColor: porcentaje === p ? "#C0392B" : "white", color: porcentaje === p ? "white" : "#333", cursor: "pointer" }}>{p}%</button>
                 ))}
               </div>
