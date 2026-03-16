@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 
-const DIAS_ES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+// ── Day names ──────────────────────────────────────────────────────────────────
+const DIAS_ES = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
 
 function getDiasFromFecha(fechaInicio: string): string[] {
   const base = new Date(fechaInicio + "T00:00:00");
   return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(base);
-    d.setDate(d.getDate() + i);
+    const d = new Date(base); d.setDate(d.getDate() + i);
     return DIAS_ES[d.getDay()];
   });
 }
@@ -15,304 +15,411 @@ function getDiasFromFecha(fechaInicio: string): string[] {
 function addDays(dateStr: string, days: number): string {
   const date = new Date(dateStr + "T00:00:00");
   date.setDate(date.getDate() + days);
-  const d = date.getDate().toString().padStart(2, "0");
-  const m = (date.getMonth() + 1).toString().padStart(2, "0");
-  const y = date.getFullYear();
-  return `${d}/${m}/${y}`;
+  return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`;
 }
 
-function num(val: string | undefined): number {
-  if (!val) return 0;
-  return parseFloat(String(val).replace(",", ".")) || 0;
+function num(v: string | undefined): number {
+  return parseFloat(String(v ?? "").replace(",", ".")) || 0;
 }
 
-function dash(val: number): number | string {
-  return val === 0 ? "-" : val;
+// ── Colors ─────────────────────────────────────────────────────────────────────
+const CH_DARK  = "FF1F4E79";
+const CH_MID   = "FF2E75B6";
+const CH_GREEN = "FF375623";
+const C_INPUT  = "FFDCE6F1";
+const C_CALC   = "FFF2F2F2";
+const C_HILITE = "FFFFF2CC";
+const C_LABEL  = "FFEAEAEA";
+
+// ── Number formats ─────────────────────────────────────────────────────────────
+const NUM = '#,##0.00;(#,##0.00);"-"';
+const PCT = '0.0%;(0.0%);"-"';
+const FAC = '0.0000;(0.0000);"-"';
+
+// ── Style helpers ──────────────────────────────────────────────────────────────
+const TBorder = { style: "thin" as const, color: { argb: "FFBFBFBF" } };
+const Border  = { left: TBorder, right: TBorder, top: TBorder, bottom: TBorder };
+
+function hdr(cell: ExcelJS.Cell, bg: string, sz = 10) {
+  cell.font      = { name:"Arial", bold:true, size:sz, color:{ argb:"FFFFFFFF" } };
+  cell.fill      = { type:"pattern", pattern:"solid", fgColor:{ argb:bg } };
+  cell.alignment = { horizontal:"center", vertical:"middle", wrapText:true };
+  cell.border    = Border;
 }
 
-const YELLOW = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFFFF00" } };
-const BLUE   = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFBDD7EE" } };
-const BOLD   = { bold: true };
-const CENTER = { horizontal: "center" as const };
-const NUM_FMT = "#,##0.00";
-const BORDER_THIN = { style: "thin" as const };
-
-function extensionDeBase64(dataUrl: string): "jpeg" | "png" | "gif" {
-  if (dataUrl.startsWith("data:image/png")) return "png";
-  if (dataUrl.startsWith("data:image/gif")) return "gif";
-  return "jpeg";
+function inp(cell: ExcelJS.Cell, fmt = NUM) {
+  cell.font      = { name:"Arial", color:{ argb:"FF0000FF" } };
+  cell.fill      = { type:"pattern", pattern:"solid", fgColor:{ argb:C_INPUT } };
+  cell.numFmt    = fmt;
+  cell.border    = Border;
+  cell.alignment = { horizontal:"right" };
 }
 
-function base64Puro(dataUrl: string): string {
-  return dataUrl.split(",")[1] ?? dataUrl;
+function calc(cell: ExcelJS.Cell, fmt = NUM, bg?: string) {
+  cell.font      = { name:"Arial", color:{ argb:"FF000000" } };
+  cell.numFmt    = fmt;
+  cell.border    = Border;
+  cell.alignment = { horizontal:"right" };
+  if (bg) cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:bg } };
 }
 
-interface DiaResumen {
-  fecha: string;
-  tasa: number;
-  totBs: number;
-  posBs: number;
-  totContado: number;
-  totSist: number;
+function lbl(cell: ExcelJS.Cell, bold = false, bg = "FFFFFFFF") {
+  cell.font      = { name:"Arial", bold, size:10, color:{ argb:"FF000000" } };
+  cell.fill      = { type:"pattern", pattern:"solid", fgColor:{ argb:bg } };
+  cell.border    = Border;
+  cell.alignment = { horizontal:"left", vertical:"middle" };
 }
 
+function empty(cell: ExcelJS.Cell) { cell.border = Border; }
+
+function fml(cell: ExcelJS.Cell, formula: string, result: number, fmt = NUM, bg?: string) {
+  cell.value  = { formula, result };
+  cell.numFmt = fmt;
+  cell.border = Border;
+  cell.alignment = { horizontal:"right" };
+  cell.font   = { name:"Arial", color:{ argb:"FF000000" } };
+  if (bg) cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:bg } };
+}
+
+// ── DiaData stored for General sheet ──────────────────────────────────────────
+interface DiaData {
+  name: string; fecha: string;
+  b5: number; b6: number; b7: number;
+  b9: number; b10: number; b11: number; b12: number; b13: number; b14: number;
+  b16: number;
+  c9: number; c10: number; c11: number; c12: number; c13: number; c14: number;
+  c23: number; b27: number;
+}
+
+// ── POST handler ───────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const { tienda, semana, porcentaje, dias, imagenes } = await req.json();
   const tiendaNombre = (tienda.split(" - ")[1] || tienda).toUpperCase();
-  const diasSemana = getDiasFromFecha(semana);
+  const diasSemana   = getDiasFromFecha(semana);
+  const pct          = num(porcentaje) / 100;
 
-  const wb = new ExcelJS.Workbook();
-  const diasResumen: DiaResumen[] = [];
+  const wb       = new ExcelJS.Workbook();
+  const diaData: DiaData[] = [];
 
+  // ── Day sheets ───────────────────────────────────────────────────────────────
   diasSemana.forEach((diaName, i) => {
-    const dia = dias[i] || {};
-    const tasa = num(dia.tasa);
+    const d    = dias[i] || {};
+    const tasa = num(d.tasa);
     const fecha = addDays(semana, i);
-    const pct = num(porcentaje) / 100;
 
-    const metodos = [
-      { label: "Efectivo Tienda",   bs: num(dia["Efectivo Tienda_Bs"]),   usd: num(dia["Efectivo Tienda_$"]) },
-      { label: "Efectivo Delivery", bs: num(dia["Efectivo Delivery_Bs"]), usd: num(dia["Efectivo Delivery_$"]) },
-      { label: "Punto de Venta",    bs: num(dia["Punto de Venta_Bs"]),    usd: 0 },
-      { label: "Pago Móvil",        bs: num(dia["Pago Móvil_Bs"]),        usd: 0 },
-      { label: "Zelle",             bs: 0,                                 usd: num(dia["Zelle_$"]) },
-      { label: "Depósito Banco",    bs: num(dia["Depósito Banco_Bs"]),    usd: 0 },
-    ];
+    // Raw values from form/CRM (all converted to $)
+    const efTBs  = num(d["Efectivo Tienda_Bs"]);
+    const efTDir = num(d["Efectivo Tienda_$"]);
+    const efDBs  = num(d["Efectivo Delivery_Bs"]);
+    const efDDir = num(d["Efectivo Delivery_$"]);
+    const posBs  = num(d["Punto de Venta_Bs"]);
+    const pmBs   = num(d["Pago Móvil_Bs"]);
+    const zelleD = num(d["Zelle_$"]);
+    const depBs  = num(d["Depósito Banco_Bs"]);
 
-    const calc = metodos.map(m => {
-      const esPOS = m.label === "Punto de Venta";
-      const factor = esPOS ? 1 : pct;
-      return {
-        label: m.label,
-        bs:    m.bs * factor,
-        usd:   m.usd * factor,
-        equiv: tasa > 0 ? m.bs / tasa * factor : 0,
-      };
-    });
+    const t = tasa > 0 ? tasa : 1;
 
-    const totBs      = calc.reduce((s, m) => s + m.bs, 0);
-    const totEquiv   = calc.reduce((s, m) => s + m.equiv, 0);
-    const totUsd     = calc.reduce((s, m) => s + m.usd, 0);
-    const totContado = totEquiv + totUsd;
+    // B column (REAL $)
+    const b9  = efTBs / t + efTDir;
+    const b10 = efDBs / t + efDDir;
+    const b11 = posBs / t;
+    const b12 = pmBs  / t;
+    const b13 = zelleD;
+    const b14 = depBs / t;
 
-    // Sistema Total = Equiv$ + Ingreso$ (suma de columnas visibles)
-    const sistemaTotalUsd = totEquiv + totUsd; // = totContado
-    // Sobrante = porción no reportada (25% ó 20%)
-    const sobrante = pct > 0 ? (sistemaTotalUsd / pct) - sistemaTotalUsd : 0;
+    const b16 = b9 + b10 + b11 + b12 + b13 + b14;
+    const b17 = efTBs + efDBs + posBs + pmBs + depBs; // total Bs
+    const b18 = b9 + b10 + b12 + b13 + b14;           // otros (excl POS)
+    const b19 = b16 * pct;                              // meta ajustada
+    const b20 = pct;
+    const b21 = b18 > 0 ? Math.max(0, (b19 - b11) / b18) : 0; // factor
 
-    diasResumen.push({ fecha, tasa, totBs, posBs: calc[2].bs, totContado, totSist: sistemaTotalUsd });
+    // C column (ADJUSTED)
+    const c9  = b9  * b21;
+    const c10 = b10 * b21;
+    const c11 = b11;           // POS 100%
+    const c12 = b12 * b21;
+    const c13 = b13 * b21;
+    const c14 = b14 * b21;
+    const c23 = c9 + c10 + c11 + c12 + c13 + c14;
 
-    // ── Hoja diaria ───────────────────────────────────────────────────────────
+    // INGRESOS section totals
+    const b5 = b17;            // total Bs
+    const b6 = b17 / t;        // equiv $
+    const b7 = efTDir + efDDir + zelleD; // direct $
+
+    const b27 = b16 - c23;     // sobrante = real - ajustado
+
+    diaData.push({ name:diaName, fecha, b5, b6, b7, b9, b10, b11, b12, b13, b14, b16, c9, c10, c11, c12, c13, c14, c23, b27 });
+
+    // ── Sheet ──────────────────────────────────────────────────────────────────
     const ws = wb.addWorksheet(diaName);
-
     ws.columns = [
-      { width: 20 }, // A: Método
-      { width: 18 }, // B: Ingresos Bs
-      { width: 14 }, // C: Equiv $
-      { width: 14 }, // D: Ingreso $
-      { width: 26 }, // E: Sistema Total $ y Bs Equiv
-      { width: 18 }, // F: Sobrante / Faltante
+      { width: 32 }, // A: CONCEPTO
+      { width: 20 }, // B: VALOR REAL
+      { width: 20 }, // C: VALOR AJUSTADO
+      { width: 22 }, // D: NOTA
     ];
 
-    // ── Row 1: Título ─────────────────────────────────────────────────────────
-    ws.mergeCells("A1:F1");
-    const t = ws.getCell("A1");
-    t.value = "RESUMEN CIERRE DIARIO";
-    t.font = { bold: true, size: 13 };
-    t.alignment = CENTER;
+    // Row 1: Title
+    ws.mergeCells("A1:D1");
+    ws.getCell("A1").value = `REPORTE DE VENTAS — ${diaName.toUpperCase()}`;
+    hdr(ws.getCell("A1"), CH_DARK, 14);
+    ws.getRow(1).height = 32;
 
-    // ── Rows 2-4: Info general ────────────────────────────────────────────────
-    ws.getCell("A2").value = "Dia";           ws.getCell("A2").font = BOLD;
-    ws.getCell("B2").value = fecha;           ws.getCell("B2").fill = YELLOW; ws.getCell("B2").font = BOLD;
-    ws.getCell("A3").value = "Tienda";        ws.getCell("A3").font = BOLD;
-    ws.getCell("B3").value = tiendaNombre;    ws.getCell("B3").fill = YELLOW; ws.getCell("B3").font = BOLD;
-    ws.getCell("A4").value = "Tasa Cambio Dia"; ws.getCell("A4").font = BOLD;
-    ws.getCell("B4").value = tasa || "-";     if (tasa) ws.getCell("B4").numFmt = NUM_FMT;
+    // Row 2: Fecha / Tienda / Tasa
+    ws.getCell("A2").value = "Tienda:"; lbl(ws.getCell("A2"), true, C_LABEL);
+    ws.getCell("B2").value = tiendaNombre; inp(ws.getCell("B2"), "@");
+    ws.getCell("C2").value = fecha; inp(ws.getCell("C2"), "DD/MM/YYYY");
+    ws.getCell("D2").value = tasa || "-"; inp(ws.getCell("D2"), '#,##0.00;"-"');
 
-    // ── Row 6: Cabeceras ──────────────────────────────────────────────────────
-    ws.mergeCells("B6:D6");
-    const hIng = ws.getCell("B6");
-    hIng.value = "INGRESOS"; hIng.font = BOLD; hIng.alignment = CENTER; hIng.fill = BLUE;
+    // Row 3: Column headers
+    [["A","CONCEPTO"],["B","VALOR REAL ($)"],["C",`VALOR AJUSTADO (${pct*100}%)`],["D","TASA / NOTA"]].forEach(([col, title]) => {
+      ws.getCell(`${col}3`).value = title; hdr(ws.getCell(`${col}3`), CH_MID, 10);
+    });
+    ws.getRow(3).height = 24;
 
-    const hSist = ws.getCell("E6");
-    hSist.value = "Sistema Total $ y Bs Equiv"; hSist.font = BOLD; hSist.alignment = CENTER; hSist.fill = BLUE;
+    // ── INGRESOS section ───────────────────────────────────────────────────────
+    ws.mergeCells("A4:D4");
+    ws.getCell("A4").value = "INGRESOS"; hdr(ws.getCell("A4"), CH_GREEN, 10);
 
-    const hSob = ws.getCell("F6");
-    hSob.value = "Sobrante / Faltante"; hSob.font = BOLD; hSob.alignment = CENTER; hSob.fill = BLUE;
-
-    // ── Row 7: Sub-cabeceras ──────────────────────────────────────────────────
-    ws.getCell("B7").value = "Ingresos Bs"; ws.getCell("B7").font = BOLD; ws.getCell("B7").alignment = CENTER;
-    ws.getCell("C7").value = "Equiv $";     ws.getCell("C7").font = BOLD; ws.getCell("C7").alignment = CENTER;
-    ws.getCell("D7").value = "Ingreso $";   ws.getCell("D7").font = BOLD; ws.getCell("D7").alignment = CENTER;
-
-    // ── Row 8: TOTALES ────────────────────────────────────────────────────────
-    const tot = ws.getRow(8);
-    tot.getCell(1).value = "TOTALES";       tot.getCell(1).font = BOLD;
-    tot.getCell(2).value = dash(totBs);     tot.getCell(2).font = BOLD; if (totBs)    tot.getCell(2).numFmt = NUM_FMT;
-    tot.getCell(3).value = dash(totEquiv);  tot.getCell(3).font = BOLD; if (totEquiv) tot.getCell(3).numFmt = NUM_FMT;
-    tot.getCell(4).value = dash(totUsd);    tot.getCell(4).font = BOLD; if (totUsd)   tot.getCell(4).numFmt = NUM_FMT;
-
-    tot.getCell(5).value = dash(sistemaTotalUsd);
-    tot.getCell(5).font = BOLD;
-    if (sistemaTotalUsd) tot.getCell(5).numFmt = NUM_FMT;
-    tot.getCell(6).value = dash(sobrante);
-    if (sobrante) {
-      tot.getCell(6).numFmt = NUM_FMT;
-      tot.getCell(6).font = { bold: true, color: { argb: sobrante >= 0 ? "FF27AE60" : "FFE74C3C" } };
-    } else {
-      tot.getCell(6).font = BOLD;
-    }
-
-    // ── Row 9: Separador (vacío) ──────────────────────────────────────────────
-
-    // ── Rows 10+: Métodos de pago ─────────────────────────────────────────────
-    calc.forEach((m, idx) => {
-      const row = ws.getRow(10 + idx);
-      row.getCell(1).value = m.label;
-      row.getCell(2).value = dash(m.bs);    if (typeof dash(m.bs)    === "number") row.getCell(2).numFmt = NUM_FMT;
-      row.getCell(3).value = dash(m.equiv); if (typeof dash(m.equiv) === "number") row.getCell(3).numFmt = NUM_FMT;
-      row.getCell(4).value = dash(m.usd);   if (typeof dash(m.usd)   === "number") row.getCell(4).numFmt = NUM_FMT;
-      // E y F: vacío (Sistema y Sobrante solo en TOTALES)
+    const ingRows: [string, number, string][] = [
+      ["Ingresos Bs",       b5, "=B5"],
+      ["Ingreso Equiv $",   b6, "=B6"],
+      ["Ingreso $ Directo", b7, "=B7"],
+    ];
+    ingRows.forEach(([label, val, formula], j) => {
+      const r = 5 + j;
+      ws.getCell(`A${r}`).value = label; lbl(ws.getCell(`A${r}`));
+      ws.getCell(`B${r}`).value = val;   calc(ws.getCell(`B${r}`), NUM, C_CALC);
+      fml(ws.getCell(`C${r}`), formula, val);
+      empty(ws.getCell(`D${r}`));
     });
 
-    // ── Bordes en la tabla (filas 6-16, cols 1-6) ─────────────────────────────
-    for (let r = 6; r <= 16; r++) {
-      for (let c = 1; c <= 6; c++) {
-        ws.getRow(r).getCell(c).border = {
-          top: BORDER_THIN, bottom: BORDER_THIN,
-          left: BORDER_THIN, right: BORDER_THIN,
-        };
+    // ── MEDIOS DE PAGO section ─────────────────────────────────────────────────
+    ws.mergeCells("A8:D8");
+    ws.getCell("A8").value = "MEDIOS DE PAGO"; hdr(ws.getCell("A8"), CH_GREEN, 10);
+
+    type PM = [number, string, number, number, boolean];
+    const pmRows: PM[] = [
+      [9,  "Efectivo Tienda",   b9,  c9,  false],
+      [10, "Efectivo Delivery", b10, c10, false],
+      [11, "Punto de Venta",    b11, c11, true ],
+      [12, "Pago Móvil",        b12, c12, false],
+      [13, "Zelle",             b13, c13, false],
+      [14, "Depósito Banco",    b14, c14, false],
+    ];
+
+    pmRows.forEach(([row, label, bVal, cVal, isPOS]) => {
+      ws.getCell(`A${row}`).value = label; lbl(ws.getCell(`A${row}`));
+      ws.getCell(`B${row}`).value = bVal;  inp(ws.getCell(`B${row}`));
+      if (isPOS) {
+        fml(ws.getCell(`C${row}`), `=B${row}`, cVal);
+        const note = ws.getCell(`D${row}`);
+        note.value = "Sin ajuste (100%)";
+        note.font  = { name:"Arial", italic:true, color:{ argb:"FF7F7F7F" }, size:9 };
+        note.alignment = { horizontal:"center" };
+        note.border = Border;
+      } else {
+        fml(ws.getCell(`C${row}`), `=IF(B18=0,0,B${row}*B21)`, cVal);
+        empty(ws.getCell(`D${row}`));
       }
-    }
+    });
 
-    // ── Imágenes ───────────────────────────────────────────────────────────────
+    // ── CÁLCULOS section ───────────────────────────────────────────────────────
+    ws.mergeCells("A15:D15");
+    ws.getCell("A15").value = "CÁLCULOS"; hdr(ws.getCell("A15"), CH_MID, 10);
+
+    ws.getCell("A16").value = "Sistema Total Real $"; lbl(ws.getCell("A16"), false, C_CALC);
+    fml(ws.getCell("B16"), "=B9+B10+B11+B12+B13+B14", b16, NUM, C_CALC);
+    empty(ws.getCell("C16")); empty(ws.getCell("D16"));
+
+    ws.getCell("A17").value = "Sistema Total Bs"; lbl(ws.getCell("A17"), false, C_CALC);
+    ws.getCell("B17").value = b5; calc(ws.getCell("B17"), NUM, C_CALC);
+    empty(ws.getCell("C17")); empty(ws.getCell("D17"));
+
+    ws.getCell("A18").value = "Otros Métodos (excl. POS) $"; lbl(ws.getCell("A18"), false, C_CALC);
+    fml(ws.getCell("B18"), "=B9+B10+B12+B13+B14", b18, NUM, C_CALC);
+    empty(ws.getCell("C18")); empty(ws.getCell("D18"));
+
+    ws.getCell("A19").value = `Meta Ajustada (${pct*100}%) $`; lbl(ws.getCell("A19"), false, C_CALC);
+    fml(ws.getCell("B19"), "=B16*B20", b19, NUM, C_CALC);
+    empty(ws.getCell("C19")); empty(ws.getCell("D19"));
+
+    ws.getCell("A20").value = "% Mínimo a Reportar"; lbl(ws.getCell("A20"), false, C_CALC);
+    ws.getCell("B20").value = b20; inp(ws.getCell("B20"), PCT);
+    empty(ws.getCell("C20")); empty(ws.getCell("D20"));
+
+    ws.getCell("A21").value = "Factor de Ajuste"; lbl(ws.getCell("A21"), false, C_CALC);
+    fml(ws.getCell("B21"), "=IF(B18=0,0,MAX(0,(B19-B11)/B18))", b21, FAC, C_CALC);
+    empty(ws.getCell("C21")); empty(ws.getCell("D21"));
+
+    // ── TOTALES REPORTADOS ─────────────────────────────────────────────────────
+    ws.mergeCells("A22:D22");
+    ws.getCell("A22").value = "TOTALES REPORTADOS"; hdr(ws.getCell("A22"), CH_DARK, 11);
+
+    ws.getCell("A23").value = "Sistema Total Ajustado $"; lbl(ws.getCell("A23"), true, C_HILITE);
+    fml(ws.getCell("B23"), "=B16", b16, NUM, C_CALC);
+    const c23cell = ws.getCell("C23");
+    c23cell.value  = { formula:"=C9+C10+C11+C12+C13+C14", result: c23 };
+    c23cell.font   = { name:"Arial", bold:true, color:{ argb:"FF000000" } };
+    c23cell.numFmt = NUM; c23cell.border = Border;
+    c23cell.alignment = { horizontal:"right" };
+    c23cell.fill  = { type:"pattern", pattern:"solid", fgColor:{ argb:C_HILITE } };
+    empty(ws.getCell("D23"));
+
+    ws.getCell("A24").value = "Sistema Total Bs (ref.)"; lbl(ws.getCell("A24"), false, C_CALC);
+    fml(ws.getCell("B24"), "=B17", b5, NUM, C_CALC);
+    empty(ws.getCell("C24")); empty(ws.getCell("D24"));
+
+    const pctVerif = b16 > 0 ? c23 / b16 : 0;
+    ws.getCell("A25").value = "% del Total Real (verificación)"; lbl(ws.getCell("A25"), false, C_CALC);
+    empty(ws.getCell("B25"));
+    fml(ws.getCell("C25"), "=IF(B16=0,0,C23/B16)", pctVerif, PCT, C_CALC);
+    empty(ws.getCell("D25"));
+
+    // ── DIFERENCIAS ────────────────────────────────────────────────────────────
+    ws.mergeCells("A26:D26");
+    ws.getCell("A26").value = "DIFERENCIAS"; hdr(ws.getCell("A26"), CH_GREEN, 10);
+
+    ws.getCell("A27").value = "Sobrante / Faltante"; lbl(ws.getCell("A27"));
+    ws.getCell("B27").value = b27; inp(ws.getCell("B27"));
+    fml(ws.getCell("C27"), "=B27", b27, NUM);
+    const sobCell = ws.getCell("C27");
+    sobCell.font = { name:"Arial", bold:true, color:{ argb: b27 >= 0 ? "FF008000" : "FFCC0000" } };
+    empty(ws.getCell("D27"));
+
+    // Freeze rows 1-3
+    ws.views = [{ state:"frozen", xSplit:0, ySplit:3 }];
+
+    // ── Images ─────────────────────────────────────────────────────────────────
     const imgs = imagenes?.[i];
-    let filaImg = 18;
-
-    const agregarImagen = (dataUrl: string, titulo: string) => {
+    let filaImg = 29;
+    const addImg = (dataUrl: string, titulo: string) => {
       ws.getCell(`A${filaImg}`).value = titulo;
-      ws.getCell(`A${filaImg}`).font = { bold: true, color: { argb: "FFC0392B" } };
+      ws.getCell(`A${filaImg}`).font  = { bold:true, color:{ argb:"FFCC0000" } };
       filaImg++;
-      const imgId = wb.addImage({
-        base64: base64Puro(dataUrl),
-        extension: extensionDeBase64(dataUrl),
-      });
-      ws.addImage(imgId, {
-        tl: { col: 0, row: filaImg - 1 },
-        ext: { width: 600, height: 350 },
-      });
+      const ext = dataUrl.startsWith("data:image/png") ? "png" : dataUrl.startsWith("data:image/gif") ? "gif" : "jpeg";
+      const id  = wb.addImage({ base64: dataUrl.split(",")[1] ?? dataUrl, extension: ext });
+      ws.addImage(id, { tl:{ col:0, row:filaImg-1 }, ext:{ width:600, height:350 } });
       filaImg += 20;
     };
-
-    if (imgs?.reporteZ)  agregarImagen(imgs.reporteZ,  "REPORTE Z");
-    if (imgs?.cierrePDV) agregarImagen(imgs.cierrePDV, "CIERRE PUNTO DE VENTA");
+    if (imgs?.reporteZ)  addImg(imgs.reporteZ,  "REPORTE Z");
+    if (imgs?.cierrePDV) addImg(imgs.cierrePDV, "CIERRE PUNTO DE VENTA");
   });
 
-  // ── Hoja General (conciliación semanal) ──────────────────────────────────────
-  const wsGen = wb.addWorksheet("General");
+  // ── GENERAL sheet ─────────────────────────────────────────────────────────────
+  const wg = wb.addWorksheet("GENERAL");
 
-  wsGen.columns = [
-    { width: 12 }, // A: Fecha
-    { width: 20 }, // B: Suma Bs
-    { width: 12 }, // C: Tasa
-    { width: 16 }, // D: Total $
-    { width: 20 }, // E: Punto de Venta Bs
-    { width: 20 }, // F: Otros Métodos Bs
-    { width: 16 }, // G: Restante $
-    { width: 16 }, // H: Sistema $
-    { width: 16 }, // I: Diferencia $
+  wg.columns = [
+    { width: 34 }, // A
+    ...Array.from({ length: 8 }, () => ({ width: 17 })), // B–I
   ];
 
-  wsGen.mergeCells("A1:I1");
-  const tGen = wsGen.getCell("A1");
-  tGen.value = "RESUMEN GENERAL SEMANAL";
-  tGen.font = { bold: true, size: 13 };
-  tGen.alignment = CENTER;
+  // Row 1: Title
+  wg.mergeCells("A1:I1");
+  wg.getCell("A1").value = `REPORTE SEMANAL DE VENTAS — ${tiendaNombre}`;
+  hdr(wg.getCell("A1"), CH_DARK, 14); wg.getRow(1).height = 32;
 
-  wsGen.getCell("A2").value = "Tienda";     wsGen.getCell("A2").font = BOLD;
-  wsGen.getCell("B2").value = tiendaNombre; wsGen.getCell("B2").fill = YELLOW; wsGen.getCell("B2").font = BOLD;
-  wsGen.getCell("A3").value = "Semana";     wsGen.getCell("A3").font = BOLD;
-  wsGen.getCell("B3").value = `${diasResumen[0]?.fecha ?? ""} - ${diasResumen[6]?.fecha ?? ""}`;
-  wsGen.getCell("B3").font = BOLD;
-  wsGen.getCell("A4").value = "Porcentaje"; wsGen.getCell("A4").font = BOLD;
-  wsGen.getCell("B4").value = `${porcentaje}%`; wsGen.getCell("B4").fill = YELLOW; wsGen.getCell("B4").font = BOLD;
+  // Row 2: Period
+  wg.getCell("A2").value = "Período:"; lbl(wg.getCell("A2"), true, C_LABEL);
+  wg.mergeCells("B2:I2");
+  wg.getCell("B2").value = `${diaData[0]?.fecha ?? ""} — ${diaData[6]?.fecha ?? ""}`;
+  wg.getCell("B2").font  = { name:"Arial", color:{ argb:"FF000000" } };
+  wg.getCell("B2").alignment = { horizontal:"left" }; wg.getCell("B2").border = Border;
 
-  const colHeaders = ["FECHA", "SUMA Bs", "TASA", "TOTAL $", "PUNTO DE VENTA Bs", "OTROS MÉTODOS Bs", "RESTANTE $", "SISTEMA $", "DIFERENCIA $"];
-  colHeaders.forEach((h, i) => {
-    const cell = wsGen.getRow(6).getCell(i + 1);
-    cell.value = h; cell.font = BOLD; cell.fill = BLUE;
-    cell.alignment = { horizontal: "center", wrapText: true };
+  // Row 3: Column headers
+  const colHdrs = ["CONCEPTO", ...diaData.map(d => `${d.name}\n${d.fecha}`), "TOTAL"];
+  colHdrs.forEach((h, ci) => {
+    wg.getCell(3, ci+1).value = h; hdr(wg.getCell(3, ci+1), CH_MID, 10);
   });
-  wsGen.getRow(6).height = 36;
+  wg.getRow(3).height = 36;
 
-  let grandSumaBs = 0, grandTotalUsd = 0, grandPosBs = 0, grandOtrosBs = 0, grandRestante = 0, grandSist = 0;
+  // Helper: write a general data row
+  const genRow = (row: number, label: string, vals: number[], bold = false, bg?: string) => {
+    const labelCell = wg.getCell(row, 1);
+    labelCell.value = label;
+    lbl(labelCell, bold, bg ?? "FFFFFFFF");
+    let total = 0;
+    vals.forEach((v, ci) => {
+      const c = wg.getCell(row, ci + 2);
+      c.font  = { name:"Arial", color:{ argb:"FF008000" } };
+      c.numFmt = NUM; c.border = Border; c.alignment = { horizontal:"right" };
+      if (bg) c.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:bg } };
+      c.value = v; // pre-computed value (formulas below)
+      total += v;
+    });
+    const totCell = wg.getCell(row, 9);
+    totCell.value  = total;
+    totCell.numFmt = NUM; totCell.border = Border;
+    totCell.alignment = { horizontal:"right" };
+    totCell.font = { name:"Arial", bold:true, color:{ argb:"FF000000" } };
+    if (bg) totCell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:bg } };
+  };
 
-  diasResumen.forEach((dr, i) => {
-    const row = wsGen.getRow(7 + i);
-    const otrosBs  = dr.posBs - dr.totBs;
-    const restante = dr.tasa > 0 ? otrosBs / dr.tasa : 0;
-    const difSist  = dr.totSist > 0 ? dr.totContado - dr.totSist : 0;
+  const secRow = (row: number, label: string, bg: string) => {
+    wg.mergeCells(`A${row}:I${row}`);
+    wg.getCell(`A${row}`).value = label;
+    hdr(wg.getCell(`A${row}`), bg, 10);
+  };
 
-    row.getCell(1).value = dr.fecha;
-    row.getCell(2).value = dr.totBs;       row.getCell(2).numFmt = NUM_FMT;
-    row.getCell(3).value = dr.tasa || "-"; if (dr.tasa) row.getCell(3).numFmt = NUM_FMT;
-    row.getCell(4).value = dr.totContado;  row.getCell(4).numFmt = NUM_FMT;
-    row.getCell(5).value = dr.posBs;       row.getCell(5).numFmt = NUM_FMT;
-    row.getCell(6).value = otrosBs;        row.getCell(6).numFmt = NUM_FMT;
-    row.getCell(7).value = restante;       row.getCell(7).numFmt = NUM_FMT;
-    if (dr.totSist > 0) {
-      row.getCell(8).value = dr.totSist;   row.getCell(8).numFmt = NUM_FMT;
-      row.getCell(9).value = difSist;      row.getCell(9).numFmt = NUM_FMT;
-      row.getCell(9).font = { color: { argb: difSist >= 0 ? "FF27AE60" : "FFE74C3C" } };
-    }
+  // Sections
+  secRow(4, "INGRESOS", CH_GREEN);
+  genRow(5,  "Ingresos Bs",        diaData.map(d => d.b5));
+  genRow(6,  "Ingreso Equiv $",    diaData.map(d => d.b6));
+  genRow(7,  "Ingreso $ Directo",  diaData.map(d => d.b7));
 
-    grandSumaBs   += dr.totBs;
-    grandTotalUsd += dr.totContado;
-    grandPosBs    += dr.posBs;
-    grandOtrosBs  += otrosBs;
-    grandRestante += restante;
-    grandSist     += dr.totSist;
-  });
+  secRow(8, "MEDIOS DE PAGO — VALOR REAL ($)", CH_MID);
+  genRow(9,  "Efectivo Tienda",    diaData.map(d => d.b9));
+  genRow(10, "Efectivo Delivery",  diaData.map(d => d.b10));
+  genRow(11, "Punto de Venta",     diaData.map(d => d.b11));
+  genRow(12, "Pago Móvil",         diaData.map(d => d.b12));
+  genRow(13, "Zelle",              diaData.map(d => d.b13));
+  genRow(14, "Depósito Banco",     diaData.map(d => d.b14));
+  genRow(15, "Sistema Total Real $", diaData.map(d => d.b16), true, C_CALC);
 
-  const rowTot = wsGen.getRow(15);
-  rowTot.getCell(1).value = "TOTAL"; rowTot.getCell(1).font = BOLD; rowTot.getCell(1).fill = YELLOW;
-  const totGenData: [number, number][] = [
-    [2, grandSumaBs], [4, grandTotalUsd], [5, grandPosBs],
-    [6, grandOtrosBs], [7, grandRestante],
-  ];
-  totGenData.forEach(([col, val]) => {
-    rowTot.getCell(col).value = val;
-    rowTot.getCell(col).numFmt = NUM_FMT;
-    rowTot.getCell(col).font = BOLD;
-    rowTot.getCell(col).fill = YELLOW;
-  });
-  if (grandSist > 0) {
-    rowTot.getCell(8).value = grandSist;
-    rowTot.getCell(8).numFmt = NUM_FMT;
-    rowTot.getCell(8).font = BOLD;
-    rowTot.getCell(8).fill = YELLOW;
-    const grandDif = grandTotalUsd - grandSist;
-    rowTot.getCell(9).value = grandDif;
-    rowTot.getCell(9).numFmt = NUM_FMT;
-    rowTot.getCell(9).font = { bold: true, color: { argb: grandDif >= 0 ? "FF27AE60" : "FFE74C3C" } };
-    rowTot.getCell(9).fill = YELLOW;
+  secRow(16, `MEDIOS DE PAGO — VALOR AJUSTADO (${pct*100}%)`, CH_MID);
+  genRow(17, "Efectivo Tienda (Aj.)",   diaData.map(d => d.c9));
+  genRow(18, "Efectivo Delivery (Aj.)", diaData.map(d => d.c10));
+  genRow(19, "Punto de Venta (100%)",   diaData.map(d => d.c11));
+  genRow(20, "Pago Móvil (Aj.)",        diaData.map(d => d.c12));
+  genRow(21, "Zelle (Aj.)",             diaData.map(d => d.c13));
+  genRow(22, "Depósito Banco (Aj.)",    diaData.map(d => d.c14));
+  genRow(23, "SISTEMA TOTAL AJUSTADO $", diaData.map(d => d.c23), true, C_HILITE);
+
+  secRow(24, "DIFERENCIAS", CH_GREEN);
+  genRow(25, "Sobrante / Faltante", diaData.map(d => d.b27));
+
+  // Verification row
+  lbl(wg.getCell(26, 1), false, C_CALC);
+  wg.getCell(26, 1).value = "% Ajuste vs Real (verificación)";
+  for (let ci = 0; ci < 7; ci++) {
+    const real = diaData[ci]?.b16 ?? 0;
+    const adj  = diaData[ci]?.c23 ?? 0;
+    const c    = wg.getCell(26, ci + 2);
+    c.value    = real > 0 ? adj / real : 0;
+    c.numFmt   = PCT; c.border = Border;
+    c.alignment = { horizontal:"right" };
+    c.font      = { name:"Arial", color:{ argb:"FF000000" } };
+    c.fill      = { type:"pattern", pattern:"solid", fgColor:{ argb:C_CALC } };
   }
+  const totReal = diaData.reduce((s,d) => s + d.b16, 0);
+  const totAdj  = diaData.reduce((s,d) => s + d.c23, 0);
+  const totVerif = wg.getCell(26, 9);
+  totVerif.value  = totReal > 0 ? totAdj / totReal : 0;
+  totVerif.numFmt = PCT; totVerif.border = Border;
+  totVerif.alignment = { horizontal:"right" };
+  totVerif.font   = { name:"Arial", bold:true };
+  totVerif.fill   = { type:"pattern", pattern:"solid", fgColor:{ argb:C_HILITE } };
 
-  for (let r = 6; r <= 15; r++) {
-    for (let c = 1; c <= 9; c++) {
-      wsGen.getRow(r).getCell(c).border = {
-        top: BORDER_THIN, bottom: BORDER_THIN,
-        left: BORDER_THIN, right: BORDER_THIN,
-      };
-    }
-  }
+  wg.views = [{ state:"frozen", xSplit:1, ySplit:3 }];
 
+  // ── Output ─────────────────────────────────────────────────────────────────
   const buf = await wb.xlsx.writeBuffer();
-
   return new NextResponse(new Uint8Array(buf as ArrayBuffer), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="cierre-${tiendaNombre}-${semana}.xlsx"`,
+      "Content-Disposition": `attachment; filename="reporte-${tiendaNombre}-${semana}.xlsx"`,
     },
   });
 }
