@@ -95,11 +95,10 @@ export async function POST(req: NextRequest) {
     const totUsd     = calc.reduce((s, m) => s + m.usd, 0);
     const totContado = totEquiv + totUsd;
 
-    // Sistema Total = 100% de todos los métodos (sin aplicar porcentaje)
-    const sistEquiv = tasa > 0 ? metodos.reduce((s, m) => s + m.bs / tasa, 0) : 0;
-    const sistUsd   = metodos.reduce((s, m) => s + m.usd, 0);
-    const sistemaTotalUsd = sistEquiv + sistUsd;
-    const sobrante = sistemaTotalUsd - totContado;
+    // Sistema Total = Equiv$ + Ingreso$ (suma de columnas visibles)
+    const sistemaTotalUsd = totEquiv + totUsd; // = totContado
+    // Sobrante = porción no reportada (25% ó 20%)
+    const sobrante = pct > 0 ? (sistemaTotalUsd / pct) - sistemaTotalUsd : 0;
 
     diasResumen.push({ fecha, tasa, totBs, posBs: calc[2].bs, totContado, totSist: sistemaTotalUsd });
 
