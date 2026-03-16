@@ -152,13 +152,15 @@ export async function POST(req: NextRequest) {
     tot.getCell(3).value = dash(totEquiv);  tot.getCell(3).font = BOLD; if (totEquiv) tot.getCell(3).numFmt = NUM_FMT;
     tot.getCell(4).value = dash(totUsd);    tot.getCell(4).font = BOLD; if (totUsd)   tot.getCell(4).numFmt = NUM_FMT;
 
-    if (sistemaTotalUsd > 0) {
-      tot.getCell(5).value = sistemaTotalUsd;
-      tot.getCell(5).font = BOLD;
-      tot.getCell(5).numFmt = NUM_FMT;
-      tot.getCell(6).value = sobrante;
+    tot.getCell(5).value = dash(sistemaTotalUsd);
+    tot.getCell(5).font = BOLD;
+    if (sistemaTotalUsd) tot.getCell(5).numFmt = NUM_FMT;
+    tot.getCell(6).value = dash(sobrante);
+    if (sobrante) {
       tot.getCell(6).numFmt = NUM_FMT;
       tot.getCell(6).font = { bold: true, color: { argb: sobrante >= 0 ? "FF27AE60" : "FFE74C3C" } };
+    } else {
+      tot.getCell(6).font = BOLD;
     }
 
     // ── Row 9: Separador (vacío) ──────────────────────────────────────────────
