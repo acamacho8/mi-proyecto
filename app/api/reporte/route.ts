@@ -390,6 +390,133 @@ export async function POST(req: NextRequest) {
 
   wg.views = [{ state:"frozen", xSplit:1, ySplit:3 }];
 
+  // ── PUNTOS DE VENTA sheet ─────────────────────────────────────────────────
+  const wp = wb.addWorksheet("PUNTOS DE VENTA");
+  wp.columns = [
+    { width: 22 }, // A: Caja
+    { width: 14 }, // B: Punto ($)
+    { width: 14 }, // C: Móvil (Bs)
+    { width: 14 }, // D: Ef. Tienda Bs
+    { width: 14 }, // E: Ef. Tienda $
+    { width: 14 }, // F: Ef. Delivery Bs
+    { width: 14 }, // G: Ef. Delivery $
+    { width: 14 }, // H: Zelle ($)
+    { width: 12 }, // I: Tasa
+    { width: 14 }, // J: Total $
+  ];
+
+  // Title
+  wp.mergeCells("A1:J1");
+  wp.getCell("A1").value = `PUNTOS DE VENTA — ${tiendaNombre}`;
+  hdr(wp.getCell("A1"), CH_DARK, 14); wp.getRow(1).height = 32;
+
+  let wpRow = 2;
+
+  diasSemana.forEach((diaName, i) => {
+    const d = dias[i] || {};
+    const counters: Array<{
+      nombre: string; tasa: number;
+      puntoSis: number; movilSis: number;
+      vesSisTienda: number; usdSisTienda: number;
+      vesSisDelivery: number; usdSisDelivery: number;
+      zelleSis: number;
+    }> = Array.isArray(d.counters) ? d.counters : [];
+
+    // Day section header
+    wp.mergeCells(`A${wpRow}:J${wpRow}`);
+    wp.getCell(`A${wpRow}`).value = `${diaName.toUpperCase()} — ${addDays(semana, i)}`;
+    hdr(wp.getCell(`A${wpRow}`), CH_MID, 11);
+    wp.getRow(wpRow).height = 22;
+    wpRow++;
+
+    // Column headers
+    const hdrs = ["CAJA / CAJERO", "PUNTO ($)", "MÓVIL (Bs)", "EF. TIENDA Bs", "EF. TIENDA $", "EF. DELIVERY Bs", "EF. DELIVERY $", "ZELLE ($)", "TASA", "TOTAL $"];
+    hdrs.forEach((h, ci) => {
+      const c = wp.getCell(wpRow, ci + 1);
+      c.value = h; hdr(c, CH_GREEN, 9);
+    });
+    wp.getRow(wpRow).height = 20;
+    wpRow++;
+
+    if (counters.length === 0) {
+      wp.mergeCells(`A${wpRow}:J${wpRow}`);
+      wp.getCell(`A${wpRow}`).value = "Sin datos de cajas para este día";
+      lbl(wp.getCell(`A${wpRow}`), false, C_CALC);
+      wpRow++;
+    } else {
+      // Per-counter rows
+      counters.forEach(ctr => {
+        const t = ctr.tasa > 0 ? ctr.tasa : 1;
+        const totalUsd =
+          ctr.puntoSis / t +
+          ctr.movilSis / t +
+          ctr.vesSisTienda / t + ctr.usdSisTienda +
+          ctr.vesSisDelivery / t + ctr.usdSisDelivery +
+          ctr.zelleSis;
+
+        const row = [
+          ctr.nombre,
+          ctr.puntoSis / t,
+          ctr.movilSis,
+          ctr.vesSisTienda,
+          ctr.usdSisTienda,
+          ctr.vesSisDelivery,
+          ctr.usdSisDelivery,
+          ctr.zelleSis,
+          ctr.tasa,
+          totalUsd,
+        ];
+        row.forEach((v, ci) => {
+          const cell = wp.getCell(wpRow, ci + 1);
+          cell.value = v;
+          cell.border = Border;
+          if (ci === 0) {
+            cell.font = { name: "Arial", size: 9 };
+            cell.alignment = { horizontal: "left" };
+          } else {
+            cell.numFmt = ci === 8 ? '#,##0.00' : NUM;
+            cell.font = { name: "Arial", size: 9 };
+            cell.alignment = { horizontal: "right" };
+          }
+        });
+        wpRow++;
+      });
+
+      // Subtotal row
+      const subPunto   = counters.reduce((s, c) => s + c.puntoSis / (c.tasa > 0 ? c.tasa : 1), 0);
+      const subMovil   = counters.reduce((s, c) => s + c.movilSis, 0);
+      const subVesTi   = counters.reduce((s, c) => s + c.vesSisTienda, 0);
+      const subUsdTi   = counters.reduce((s, c) => s + c.usdSisTienda, 0);
+      const subVesDe   = counters.reduce((s, c) => s + c.vesSisDelivery, 0);
+      const subUsdDe   = counters.reduce((s, c) => s + c.usdSisDelivery, 0);
+      const subZelle   = counters.reduce((s, c) => s + c.zelleSis, 0);
+      const subTotal   = counters.reduce((s, c) => {
+        const t2 = c.tasa > 0 ? c.tasa : 1;
+        return s + c.puntoSis / t2 + c.movilSis / t2 + c.vesSisTienda / t2 + c.usdSisTienda + c.vesSisDelivery / t2 + c.usdSisDelivery + c.zelleSis;
+      }, 0);
+
+      const subRow = ["SUBTOTAL", subPunto, subMovil, subVesTi, subUsdTi, subVesDe, subUsdDe, subZelle, "", subTotal];
+      subRow.forEach((v, ci) => {
+        const cell = wp.getCell(wpRow, ci + 1);
+        cell.value = v;
+        cell.border = Border;
+        cell.font = { name: "Arial", bold: true, size: 9, color: { argb: "FF000000" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C_CALC } };
+        if (ci !== 0 && ci !== 8) {
+          cell.numFmt = NUM;
+          cell.alignment = { horizontal: "right" };
+        } else if (ci === 8) {
+          cell.alignment = { horizontal: "right" };
+        }
+      });
+      wpRow++;
+    }
+
+    wpRow++; // blank row between days
+  });
+
+  wp.views = [{ state: "frozen", xSplit: 0, ySplit: 1 }];
+
   // ── Output ─────────────────────────────────────────────────────────────────
   const buf = await wb.xlsx.writeBuffer();
   return new NextResponse(new Uint8Array(buf as ArrayBuffer), {

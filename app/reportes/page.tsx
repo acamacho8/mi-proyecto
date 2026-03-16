@@ -34,7 +34,7 @@ const metodosPago = [
 ];
 
 const initialDia = () => {
-  const obj: any = { tasa: "" };
+  const obj: any = { tasa: "", counters: [] };
   metodosPago.forEach(m => { obj[`${m.label}_${m.moneda}`] = ""; });
   return obj;
 };

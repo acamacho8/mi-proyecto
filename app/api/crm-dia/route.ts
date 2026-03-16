@@ -99,6 +99,19 @@ export async function GET(req: NextRequest) {
       "sist_Efectivo Delivery_$":  sumC("usdSisDelivery").toFixed(2),
       "sist_Zelle_$":              sumC("zelleSis").toFixed(2),
       "sist_Depósito Banco_Bs":    "0.00",
+
+      // Contadores individuales (por caja) para la hoja de Puntos de Venta
+      counters: counters.map((c: any, idx: number) => ({
+        nombre: c.name || c.code || c.counterCode || c.counterName || c.cajero || `Caja ${idx + 1}`,
+        tasa:          Number(c.rate)           || 0,
+        puntoSis:      Number(c.puntoSis)       || 0,
+        movilSis:      Number(c.movilSis)       || 0,
+        vesSisTienda:  Number(c.vesSisTienda)   || 0,
+        usdSisTienda:  Number(c.usdSisTienda)   || 0,
+        vesSisDelivery:Number(c.vesSisDelivery) || 0,
+        usdSisDelivery:Number(c.usdSisDelivery) || 0,
+        zelleSis:      Number(c.zelleSis)       || 0,
+      })),
     });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
