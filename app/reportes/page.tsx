@@ -8,7 +8,19 @@ const tiendas = [
   "FQ88 - Sambil La Candelaria",
 ];
 
-const diasSemana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+const DIAS_ES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+function getDiasFromFecha(fechaInicio: string): string[] {
+  if (!fechaInicio) return ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+  const base = new Date(fechaInicio + "T00:00:00");
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(base);
+    d.setDate(d.getDate() + i);
+    return DIAS_ES[d.getDay()];
+  });
+}
+
+const diasSemana = Array.from({ length: 7 }, () => ""); // solo para inicializar estados (longitud 7)
 
 const metodosPago = [
   { label: "Efectivo Tienda", moneda: "Bs" },
@@ -84,6 +96,7 @@ function leerBase64(file: File): Promise<string> {
 export default function ReportesPage() {
   const [tienda, setTienda] = useState("");
   const [semana, setSemana] = useState("");
+  const diasDeSemana = getDiasFromFecha(semana);
   const [porcentaje, setPorcentaje] = useState("75");
   const [paso, setPaso] = useState(1);
   const [dias, setDias] = useState(diasSemana.map(() => initialDia()));
@@ -142,7 +155,7 @@ export default function ReportesPage() {
   const openDriveForField = async (i: number, tipo: "reporteZ" | "cierrePDV") => {
     pickerTarget.current = { i, tipo };
     try {
-      await openDrive(diasSemana[i]);
+      await openDrive(diasDeSemana[i]);
     } catch (err: any) {
       console.error("Drive Picker error:", err);
       alert("Error al abrir Google Drive: " + (err?.message ?? String(err)));
@@ -252,7 +265,7 @@ export default function ReportesPage() {
             </div>
             <p style={{ color: "#888", marginBottom: "24px", fontSize: "14px" }}>{tienda} · Porcentaje: {porcentaje}%</p>
             <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "32px" }}>
-              {diasSemana.map((dia, i) => (
+              {diasDeSemana.map((dia, i) => (
                 <div key={i} style={{ border: `2px solid ${expandidos[i] ? "#C0392B" : "#eee"}`, borderRadius: "8px", overflow: "hidden", transition: "border-color 0.2s" }}>
                   <div
                     onClick={() => toggleExpandido(i)}

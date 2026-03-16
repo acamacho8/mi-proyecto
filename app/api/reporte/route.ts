@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 
-const diasSemana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+const DIAS_ES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+function getDiasFromFecha(fechaInicio: string): string[] {
+  const base = new Date(fechaInicio + "T00:00:00");
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(base);
+    d.setDate(d.getDate() + i);
+    return DIAS_ES[d.getDay()];
+  });
+}
 
 function addDays(dateStr: string, days: number): string {
   const date = new Date(dateStr + "T00:00:00");
@@ -49,6 +58,7 @@ interface DiaResumen {
 export async function POST(req: NextRequest) {
   const { tienda, semana, porcentaje, dias, imagenes } = await req.json();
   const tiendaNombre = (tienda.split(" - ")[1] || tienda).toUpperCase();
+  const diasSemana = getDiasFromFecha(semana);
 
   const wb = new ExcelJS.Workbook();
   const diasResumen: DiaResumen[] = [];
