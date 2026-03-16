@@ -52,7 +52,6 @@ interface DiaResumen {
   totBs: number;
   posBs: number;
   totContado: number;
-  totSist: number;
 }
 
 export async function POST(req: NextRequest) {
@@ -70,41 +69,13 @@ export async function POST(req: NextRequest) {
 
     const pct = num(porcentaje) / 100;
 
-    // Valores del sistema (Reporte Z)
-    const sistBsToUsd = (key: string) => tasa > 0 ? num(dia[key]) / tasa * pct : 0;
-    const sistUsd     = (key: string) => num(dia[key]) * pct;
-
     const metodos = [
-      {
-        label: "Efectivo Tienda",
-        bs: num(dia["Efectivo Tienda_Bs"]),   usd: num(dia["Efectivo Tienda_$"]),
-        sist: sistBsToUsd("sist_Efectivo Tienda_Bs") + sistUsd("sist_Efectivo Tienda_$"),
-      },
-      {
-        label: "Efectivo Delivery",
-        bs: num(dia["Efectivo Delivery_Bs"]), usd: num(dia["Efectivo Delivery_$"]),
-        sist: sistBsToUsd("sist_Efectivo Delivery_Bs") + sistUsd("sist_Efectivo Delivery_$"),
-      },
-      {
-        label: "Punto de Venta",
-        bs: num(dia["Punto de Venta_Bs"]),    usd: 0,
-        sist: sistBsToUsd("sist_Punto de Venta_Bs"),
-      },
-      {
-        label: "Pago Móvil",
-        bs: num(dia["Pago Móvil_Bs"]),        usd: 0,
-        sist: sistBsToUsd("sist_Pago Móvil_Bs"),
-      },
-      {
-        label: "Zelle",
-        bs: 0,                                 usd: num(dia["Zelle_$"]),
-        sist: sistUsd("sist_Zelle_$"),
-      },
-      {
-        label: "Depósito Banco",
-        bs: num(dia["Depósito Banco_Bs"]),    usd: 0,
-        sist: sistBsToUsd("sist_Depósito Banco_Bs"),
-      },
+      { label: "Efectivo Tienda",   bs: num(dia["Efectivo Tienda_Bs"]),   usd: num(dia["Efectivo Tienda_$"]) },
+      { label: "Efectivo Delivery", bs: num(dia["Efectivo Delivery_Bs"]), usd: num(dia["Efectivo Delivery_$"]) },
+      { label: "Punto de Venta",    bs: num(dia["Punto de Venta_Bs"]),    usd: 0 },
+      { label: "Pago Móvil",        bs: num(dia["Pago Móvil_Bs"]),        usd: 0 },
+      { label: "Zelle",             bs: 0,                                 usd: num(dia["Zelle_$"]) },
+      { label: "Depósito Banco",    bs: num(dia["Depósito Banco_Bs"]),    usd: 0 },
     ];
 
     const calc = metodos.map(m => {
@@ -115,114 +86,75 @@ export async function POST(req: NextRequest) {
         bs:    m.bs * factor,
         usd:   m.usd * factor,
         equiv: tasa > 0 ? m.bs / tasa * factor : 0,
-        sist:  m.sist,
       };
     });
 
     const totBs    = calc.reduce((s, m) => s + m.bs, 0);
     const totEquiv = calc.reduce((s, m) => s + m.equiv, 0);
     const totUsd   = calc.reduce((s, m) => s + m.usd, 0);
-    const totSist  = calc.reduce((s, m) => s + m.sist, 0);
     const totContado = totEquiv + totUsd;
 
     // Guardar para la hoja General
-    diasResumen.push({ fecha, tasa, totBs, posBs: calc[2].bs, totContado, totSist });
+    diasResumen.push({ fecha, tasa, totBs, posBs: calc[2].bs, totContado });
 
     const ws = wb.addWorksheet(diaName);
 
     ws.columns = [
-      { width: 20 }, // A
+      { width: 20 }, // A: Método
       { width: 14 }, // B: Ingresos Bs
       { width: 3  }, // C: $
       { width: 12 }, // D: Equiv $
       { width: 3  }, // E: $
       { width: 12 }, // F: Ingreso $
       { width: 3  }, // G: $
-      { width: 24 }, // H: Sistema Total
-      { width: 3  }, // I: $
-      { width: 18 }, // J: Sobrante/Faltante
     ];
 
     // ── Row 1: Título ──────────────────────────────────────────────────────────
-    ws.mergeCells("A1:J1");
+    ws.mergeCells("A1:G1");
     const t = ws.getCell("A1");
     t.value = "RESUMEN CIERRE DIARIO";
     t.font = { bold: true, size: 13 };
     t.alignment = CENTER;
 
     // ── Rows 2-4: Info general ─────────────────────────────────────────────────
-    ws.getCell("A2").value = "Dia";
-    ws.getCell("A2").font = BOLD;
-    ws.getCell("B2").value = fecha;
-    ws.getCell("B2").fill = YELLOW;
-    ws.getCell("B2").font = BOLD;
-
-    ws.getCell("A3").value = "Tienda";
-    ws.getCell("A3").font = BOLD;
-    ws.getCell("B3").value = tiendaNombre;
-    ws.getCell("B3").fill = YELLOW;
-    ws.getCell("B3").font = BOLD;
-
-    ws.getCell("A4").value = "Tasa Cambio Dia";
-    ws.getCell("A4").font = BOLD;
-    ws.getCell("B4").value = tasa || "-";
-    ws.getCell("B4").numFmt = NUM_FMT;
+    ws.getCell("A2").value = "Dia";      ws.getCell("A2").font = BOLD;
+    ws.getCell("B2").value = fecha;      ws.getCell("B2").fill = YELLOW; ws.getCell("B2").font = BOLD;
+    ws.getCell("A3").value = "Tienda";   ws.getCell("A3").font = BOLD;
+    ws.getCell("B3").value = tiendaNombre; ws.getCell("B3").fill = YELLOW; ws.getCell("B3").font = BOLD;
+    ws.getCell("A4").value = "Tasa Cambio Dia"; ws.getCell("A4").font = BOLD;
+    ws.getCell("B4").value = tasa || "-"; ws.getCell("B4").numFmt = NUM_FMT;
 
     // ── Row 6: Cabecera INGRESOS ───────────────────────────────────────────────
-    ws.mergeCells("B6:F6");
+    ws.mergeCells("B6:G6");
     const hIng = ws.getCell("B6");
     hIng.value = "INGRESOS";
     hIng.font = BOLD;
     hIng.alignment = CENTER;
     hIng.fill = BLUE;
 
-    ws.getCell("H6").value = "Sistema Total $ y Bs Equiv";
-    ws.getCell("H6").font = BOLD;
-    ws.getCell("H6").alignment = { horizontal: "center", wrapText: true };
-    ws.getCell("H6").fill = BLUE;
-
-    ws.getCell("J6").value = "Sobrante / Faltante";
-    ws.getCell("J6").font = BOLD;
-    ws.getCell("J6").alignment = { horizontal: "center", wrapText: true };
-    ws.getCell("J6").fill = BLUE;
-
     // ── Row 7: Sub-cabeceras ───────────────────────────────────────────────────
-    ws.getCell("B7").value = "Ingresos Bs";  ws.getCell("B7").font = BOLD;
-    ws.getCell("D7").value = "Equiv  $";     ws.getCell("D7").font = BOLD;
-    ws.getCell("F7").value = "Ingreso $";    ws.getCell("F7").font = BOLD;
+    ws.getCell("B7").value = "Ingresos Bs"; ws.getCell("B7").font = BOLD;
+    ws.getCell("D7").value = "Equiv $";     ws.getCell("D7").font = BOLD;
+    ws.getCell("F7").value = "Ingreso $";   ws.getCell("F7").font = BOLD;
 
     // ── Row 8: TOTALES ─────────────────────────────────────────────────────────
-    const totSobrante = totSist > 0 ? totContado - totSist : 0;
-
     const tot = ws.getRow(8);
     const totCells: [number, string | number][] = [
       [1, "TOTALES"],
-      [2, dash(totBs)],       [3, "$"],
-      [4, dash(totEquiv)],    [5, "$"],
-      [6, dash(totUsd)],      [7, "$"],
-      [8, dash(totSist)],     [9, "$"],
-      [10, totSist > 0 ? dash(totSobrante) : ""],
+      [2, dash(totBs)],    [3, "$"],
+      [4, dash(totEquiv)], [5, "$"],
+      [6, dash(totUsd)],   [7, "$"],
     ];
-    totCells.forEach(([col, val]) => {
-      const c = tot.getCell(col);
-      c.value = val;
-      c.font = BOLD;
-    });
-    [2, 4, 6, 8, 10].forEach(col => { tot.getCell(col).numFmt = NUM_FMT; });
+    totCells.forEach(([col, val]) => { tot.getCell(col).value = val; tot.getCell(col).font = BOLD; });
+    [2, 4, 6].forEach(col => { tot.getCell(col).numFmt = NUM_FMT; });
 
     // ── Rows 10+: Métodos de pago ──────────────────────────────────────────────
     calc.forEach((m, idx) => {
-      const contado = m.equiv + m.usd;
-      const sobrante = m.sist > 0 ? contado - m.sist : null;
-
       const row = ws.getRow(10 + idx);
       row.getCell(1).value = m.label;
-      row.getCell(2).value = dash(m.bs);                  row.getCell(3).value = "$";
-      row.getCell(4).value = dash(m.equiv);               row.getCell(5).value = "$";
-      row.getCell(6).value = dash(m.usd);                 row.getCell(7).value = "$";
-      row.getCell(8).value = m.sist > 0 ? dash(m.sist) : ""; row.getCell(9).value = "$";
-      row.getCell(10).value = sobrante !== null ? dash(sobrante) : "";
-
+      row.getCell(2).value = dash(m.bs);    row.getCell(3).value = "$";
+      row.getCell(4).value = dash(m.equiv); row.getCell(5).value = "$";
+      row.getCell(6).value = dash(m.usd);   row.getCell(7).value = "$";
       [2, 4, 6].forEach(col => {
         const c = row.getCell(col);
         if (typeof c.value === "number") c.numFmt = NUM_FMT;
@@ -232,9 +164,8 @@ export async function POST(req: NextRequest) {
     // ── Bordes en la tabla (filas 6-16) ───────────────────────────────────────
     const borderThin = { style: "thin" as const };
     for (let r = 6; r <= 16; r++) {
-      for (let c = 1; c <= 10; c++) {
-        const cell = ws.getRow(r).getCell(c);
-        cell.border = {
+      for (let c = 1; c <= 7; c++) {
+        ws.getRow(r).getCell(c).border = {
           top: borderThin, bottom: borderThin,
           left: borderThin, right: borderThin,
         };
@@ -276,12 +207,10 @@ export async function POST(req: NextRequest) {
     { width: 22 }, // E: Punto de Venta Bs
     { width: 22 }, // F: Otros Métodos Bs
     { width: 16 }, // G: Restante $
-    { width: 16 }, // H: Sistema $
-    { width: 16 }, // I: Diferencia $
   ];
 
   // Row 1: Título
-  wsGen.mergeCells("A1:I1");
+  wsGen.mergeCells("A1:G1");
   const tGen = wsGen.getCell("A1");
   tGen.value = "RESUMEN GENERAL SEMANAL";
   tGen.font = { bold: true, size: 13 };
@@ -297,7 +226,7 @@ export async function POST(req: NextRequest) {
   wsGen.getCell("B4").value = `${porcentaje}%`; wsGen.getCell("B4").fill = YELLOW; wsGen.getCell("B4").font = BOLD;
 
   // Row 6: Cabeceras columnas
-  const colHeaders = ["FECHA", "SUMA Bs", "TASA", "TOTAL $", "PUNTO DE VENTA Bs", "OTROS MÉTODOS Bs", "RESTANTE $", "SISTEMA $", "DIFERENCIA $"];
+  const colHeaders = ["FECHA", "SUMA Bs", "TASA", "TOTAL $", "PUNTO DE VENTA Bs", "OTROS MÉTODOS Bs", "RESTANTE $"];
   colHeaders.forEach((h, i) => {
     const cell = wsGen.getRow(6).getCell(i + 1);
     cell.value = h;
@@ -308,61 +237,42 @@ export async function POST(req: NextRequest) {
   wsGen.getRow(6).height = 36;
 
   // Rows 7-13: un día por fila
-  let grandSumaBs = 0, grandTotalUsd = 0, grandPosBs = 0, grandOtrosBs = 0, grandRestante = 0, grandSist = 0;
+  let grandSumaBs = 0, grandTotalUsd = 0, grandPosBs = 0, grandOtrosBs = 0, grandRestante = 0;
 
   diasResumen.forEach((dr, i) => {
     const row = wsGen.getRow(7 + i);
-    const otrosBs  = dr.posBs - dr.totBs;                        // negativo = otros métodos cubren la diferencia
+    const otrosBs  = dr.posBs - dr.totBs;
     const restante = dr.tasa > 0 ? otrosBs / dr.tasa : 0;
-    const diff     = dr.totSist > 0 ? dr.totContado - dr.totSist : null;
 
     row.getCell(1).value = dr.fecha;
-    row.getCell(2).value = dr.totBs;     row.getCell(2).numFmt = NUM_FMT;
+    row.getCell(2).value = dr.totBs;      row.getCell(2).numFmt = NUM_FMT;
     row.getCell(3).value = dr.tasa || "-"; if (dr.tasa) { row.getCell(3).numFmt = NUM_FMT; }
     row.getCell(4).value = dr.totContado; row.getCell(4).numFmt = NUM_FMT;
-    row.getCell(5).value = dr.posBs;     row.getCell(5).numFmt = NUM_FMT;
-    row.getCell(6).value = otrosBs;      row.getCell(6).numFmt = NUM_FMT;
-    row.getCell(7).value = restante;     row.getCell(7).numFmt = NUM_FMT;
-    if (dr.totSist > 0) {
-      row.getCell(8).value = dr.totSist; row.getCell(8).numFmt = NUM_FMT;
-    }
-    if (diff !== null) {
-      row.getCell(9).value = diff;
-      row.getCell(9).numFmt = NUM_FMT;
-      row.getCell(9).font = { color: { argb: diff >= 0 ? "FF27AE60" : "FFE74C3C" } };
-    }
+    row.getCell(5).value = dr.posBs;      row.getCell(5).numFmt = NUM_FMT;
+    row.getCell(6).value = otrosBs;       row.getCell(6).numFmt = NUM_FMT;
+    row.getCell(7).value = restante;      row.getCell(7).numFmt = NUM_FMT;
 
     grandSumaBs   += dr.totBs;
     grandTotalUsd += dr.totContado;
     grandPosBs    += dr.posBs;
     grandOtrosBs  += otrosBs;
     grandRestante += restante;
-    grandSist     += dr.totSist;
   });
 
   // Row 15: TOTALES
   const rowTot = wsGen.getRow(15);
-  rowTot.getCell(1).value = "TOTAL";
+  rowTot.getCell(1).value = "TOTAL"; rowTot.getCell(1).font = BOLD; rowTot.getCell(1).fill = YELLOW;
   [[2, grandSumaBs], [4, grandTotalUsd], [5, grandPosBs], [6, grandOtrosBs], [7, grandRestante]].forEach(([col, val]) => {
     rowTot.getCell(col as number).value = val as number;
     rowTot.getCell(col as number).numFmt = NUM_FMT;
     rowTot.getCell(col as number).font = BOLD;
     rowTot.getCell(col as number).fill = YELLOW;
   });
-  rowTot.getCell(1).font = BOLD; rowTot.getCell(1).fill = YELLOW;
-  if (grandSist > 0) {
-    rowTot.getCell(8).value = grandSist; rowTot.getCell(8).numFmt = NUM_FMT;
-    rowTot.getCell(8).font = BOLD; rowTot.getCell(8).fill = YELLOW;
-    const grandDiff = grandTotalUsd - grandSist;
-    rowTot.getCell(9).value = grandDiff; rowTot.getCell(9).numFmt = NUM_FMT;
-    rowTot.getCell(9).font = { bold: true, color: { argb: grandDiff >= 0 ? "FF27AE60" : "FFE74C3C" } };
-    rowTot.getCell(9).fill = YELLOW;
-  }
 
   // Bordes tabla General (filas 6-15)
   const borderGen = { style: "thin" as const };
   for (let r = 6; r <= 15; r++) {
-    for (let c = 1; c <= 9; c++) {
+    for (let c = 1; c <= 7; c++) {
       wsGen.getRow(r).getCell(c).border = {
         top: borderGen, bottom: borderGen,
         left: borderGen, right: borderGen,

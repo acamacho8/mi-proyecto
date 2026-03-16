@@ -33,21 +33,9 @@ const metodosPago = [
   { label: "Depósito Banco", moneda: "Bs" },
 ];
 
-const sistemaMetodos = [
-  { label: "Punto de Venta",    moneda: "Bs" },
-  { label: "Pago Móvil",        moneda: "Bs" },
-  { label: "Efectivo Tienda",   moneda: "Bs" },
-  { label: "Efectivo Tienda",   moneda: "$"  },
-  { label: "Efectivo Delivery", moneda: "Bs" },
-  { label: "Efectivo Delivery", moneda: "$"  },
-  { label: "Zelle",             moneda: "$"  },
-  { label: "Depósito Banco",    moneda: "Bs" },
-];
-
 const initialDia = () => {
   const obj: any = { tasa: "" };
   metodosPago.forEach(m => { obj[`${m.label}_${m.moneda}`] = ""; });
-  sistemaMetodos.forEach(m => { obj[`sist_${m.label}_${m.moneda}`] = ""; });
   return obj;
 };
 
@@ -59,29 +47,23 @@ function calcularResumenDia(dia: any, pct: number) {
   if (tasa <= 0) return null;
 
   const metodos = [
-    { pos: false, bsKey: "Efectivo Tienda_Bs",    usdKey: "Efectivo Tienda_$",    sBsKey: "sist_Efectivo Tienda_Bs",    sUsdKey: "sist_Efectivo Tienda_$" },
-    { pos: false, bsKey: "Efectivo Delivery_Bs",  usdKey: "Efectivo Delivery_$",  sBsKey: "sist_Efectivo Delivery_Bs",  sUsdKey: "sist_Efectivo Delivery_$" },
-    { pos: true,  bsKey: "Punto de Venta_Bs",     usdKey: null,                   sBsKey: "sist_Punto de Venta_Bs",     sUsdKey: null },
-    { pos: false, bsKey: "Pago Móvil_Bs",         usdKey: null,                   sBsKey: "sist_Pago Móvil_Bs",         sUsdKey: null },
-    { pos: false, bsKey: null,                    usdKey: "Zelle_$",              sBsKey: null,                         sUsdKey: "sist_Zelle_$" },
-    { pos: false, bsKey: "Depósito Banco_Bs",     usdKey: null,                   sBsKey: "sist_Depósito Banco_Bs",     sUsdKey: null },
+    { pos: false, bsKey: "Efectivo Tienda_Bs",   usdKey: "Efectivo Tienda_$" },
+    { pos: false, bsKey: "Efectivo Delivery_Bs", usdKey: "Efectivo Delivery_$" },
+    { pos: true,  bsKey: "Punto de Venta_Bs",    usdKey: null },
+    { pos: false, bsKey: "Pago Móvil_Bs",        usdKey: null },
+    { pos: false, bsKey: null,                   usdKey: "Zelle_$" },
+    { pos: false, bsKey: "Depósito Banco_Bs",    usdKey: null },
   ];
 
   let contado = 0;
-  let sistema = 0;
   for (const m of metodos) {
     const factor = m.pos ? 1 : (pct / 100);
     const bs  = m.bsKey  ? n(dia[m.bsKey])  : 0;
     const usd = m.usdKey ? n(dia[m.usdKey]) : 0;
     contado += (bs / tasa + usd) * factor;
-
-    const sBs  = m.sBsKey  ? n(dia[m.sBsKey])  : 0;
-    const sUsd = m.sUsdKey ? n(dia[m.sUsdKey]) : 0;
-    sistema += (sBs / tasa + sUsd) * (pct / 100);
   }
 
-  const sobrante = sistema > 0 ? contado - sistema : null;
-  return { contado, sistema, sobrante };
+  return { contado };
 }
 
 function leerBase64(file: File): Promise<string> {
@@ -278,14 +260,9 @@ export default function ReportesPage() {
                         if (!r) return null;
                         const fmt = (v: number) => v.toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                         return (
-                          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                            <span style={{ fontSize: "12px", color: "#888" }}>Sist: <strong style={{ color: "#2980B9" }}>${fmt(r.sistema)}</strong></span>
-                            {r.sobrante !== null && (
-                              <span style={{ fontSize: "12px", fontWeight: "700", color: r.sobrante >= 0 ? "#27AE60" : "#E74C3C" }}>
-                                {r.sobrante >= 0 ? "+" : ""}{fmt(r.sobrante)}
-                              </span>
-                            )}
-                          </div>
+                          <span style={{ fontSize: "12px", color: "#888" }}>
+                            Total: <strong style={{ color: "#2C3E50" }}>${fmt(r.contado)}</strong>
+                          </span>
                         );
                       })()}
                     </div>
@@ -307,54 +284,15 @@ export default function ReportesPage() {
                     <label style={{ fontSize: "12px", fontWeight: "700", color: "#888", whiteSpace: "nowrap" }}>Tasa de Cambio</label>
                     <input placeholder="0.00 Bs/$" value={dias[i].tasa} onChange={e => updateDia(i, "tasa", e.target.value)} style={{ flex: 1, padding: "6px 10px", border: "1px solid #F1C40F", borderRadius: "6px", fontSize: "13px", boxSizing: "border-box" }} />
                   </div>
-                  {/* Valores del Sistema (Reporte Z) */}
-                  <div style={{ padding: "12px 16px", borderTop: "1px solid #eee", backgroundColor: "#f0f4ff" }}>
-                    <div style={{ fontSize: "12px", fontWeight: "700", color: "#2C3E50", marginBottom: "10px" }}>
-                      📊 Valores del Sistema (Reporte Z)
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                      {sistemaMetodos.map((m, j) => (
-                        <div key={j}>
-                          <label style={{ fontSize: "11px", color: "#555", fontWeight: "600", display: "block", marginBottom: "4px" }}>
-                            {m.label} <span style={{ color: m.moneda === "$" ? "#27AE60" : "#2980B9" }}>{m.moneda}</span>
-                          </label>
-                          <input
-                            placeholder={`0.00 ${m.moneda}`}
-                            value={dias[i][`sist_${m.label}_${m.moneda}`]}
-                            onChange={e => updateDia(i, `sist_${m.label}_${m.moneda}`, e.target.value)}
-                            style={{ width: "100%", padding: "8px 10px", border: "1px solid #c5d3e8", borderRadius: "6px", fontSize: "13px", boxSizing: "border-box", backgroundColor: "white" }}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
                   {/* Resumen de cálculo en vivo */}
                   {(() => {
                     const r = calcularResumenDia(dias[i], parseFloat(porcentaje) || 0);
                     if (!r) return null;
                     const fmt = (v: number) => v.toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                    const diff = r.sobrante;
                     return (
-                      <div style={{ padding: "10px 16px", borderTop: "1px solid #eee", backgroundColor: "#f8f9fa", display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                        <div style={{ flex: 1, minWidth: "100px", textAlign: "center" }}>
-                          <div style={{ fontSize: "10px", color: "#888", fontWeight: "700", marginBottom: "2px" }}>CONTADO ({porcentaje}%)</div>
-                          <div style={{ fontSize: "14px", fontWeight: "700", color: "#2C3E50" }}>${fmt(r.contado)}</div>
-                        </div>
-                        {r.sistema > 0 && (
-                          <>
-                            <div style={{ flex: 1, minWidth: "100px", textAlign: "center" }}>
-                              <div style={{ fontSize: "10px", color: "#888", fontWeight: "700", marginBottom: "2px" }}>SISTEMA ({porcentaje}%)</div>
-                              <div style={{ fontSize: "14px", fontWeight: "700", color: "#2980B9" }}>${fmt(r.sistema)}</div>
-                            </div>
-                            <div style={{ flex: 1, minWidth: "100px", textAlign: "center" }}>
-                              <div style={{ fontSize: "10px", color: "#888", fontWeight: "700", marginBottom: "2px" }}>DIFERENCIA</div>
-                              <div style={{ fontSize: "14px", fontWeight: "700", color: diff !== null && diff >= 0 ? "#27AE60" : "#E74C3C" }}>
-                                {diff !== null ? (diff >= 0 ? "+" : "") + fmt(diff) : "—"}
-                              </div>
-                            </div>
-                          </>
-                        )}
+                      <div style={{ padding: "10px 16px", borderTop: "1px solid #eee", backgroundColor: "#f8f9fa", textAlign: "center" }}>
+                        <div style={{ fontSize: "10px", color: "#888", fontWeight: "700", marginBottom: "2px" }}>TOTAL CONTADO ({porcentaje}%)</div>
+                        <div style={{ fontSize: "16px", fontWeight: "700", color: "#2C3E50" }}>${fmt(r.contado)}</div>
                       </div>
                     );
                   })()}
