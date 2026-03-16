@@ -34,7 +34,7 @@ const metodosPago = [
 ];
 
 const initialDia = () => {
-  const obj: any = { tasa: "", sistemaTotalUsd: "" };
+  const obj: any = { tasa: "" };
   metodosPago.forEach(m => { obj[`${m.label}_${m.moneda}`] = ""; });
   return obj;
 };
@@ -283,10 +283,6 @@ export default function ReportesPage() {
                   <div style={{ padding: "12px 16px", backgroundColor: "#fffbea", borderBottom: "1px solid #eee", display: "flex", alignItems: "center", gap: "12px" }}>
                     <label style={{ fontSize: "12px", fontWeight: "700", color: "#888", whiteSpace: "nowrap" }}>Tasa de Cambio</label>
                     <input placeholder="0.00 Bs/$" value={dias[i].tasa} onChange={e => updateDia(i, "tasa", e.target.value)} style={{ flex: 1, padding: "6px 10px", border: "1px solid #F1C40F", borderRadius: "6px", fontSize: "13px", boxSizing: "border-box" }} />
-                  </div>
-                  <div style={{ padding: "12px 16px", backgroundColor: "#f0f4ff", borderBottom: "1px solid #eee", display: "flex", alignItems: "center", gap: "12px" }}>
-                    <label style={{ fontSize: "12px", fontWeight: "700", color: "#888", whiteSpace: "nowrap" }}>Sistema Total $</label>
-                    <input placeholder="0.00" value={dias[i].sistemaTotalUsd} onChange={e => updateDia(i, "sistemaTotalUsd", e.target.value)} style={{ flex: 1, padding: "6px 10px", border: "1px solid #4A90D9", borderRadius: "6px", fontSize: "13px", boxSizing: "border-box" }} />
                   </div>
                   {/* Resumen de cálculo en vivo */}
                   {(() => {

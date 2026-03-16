@@ -95,8 +95,11 @@ export async function POST(req: NextRequest) {
     const totUsd     = calc.reduce((s, m) => s + m.usd, 0);
     const totContado = totEquiv + totUsd;
 
-    const sistemaTotalUsd = num(dia["sistemaTotalUsd"]);
-    const sobrante = sistemaTotalUsd > 0 ? totContado - sistemaTotalUsd : 0;
+    // Sistema Total = 100% de todos los métodos (sin aplicar porcentaje)
+    const sistEquiv = tasa > 0 ? metodos.reduce((s, m) => s + m.bs / tasa, 0) : 0;
+    const sistUsd   = metodos.reduce((s, m) => s + m.usd, 0);
+    const sistemaTotalUsd = sistEquiv + sistUsd;
+    const sobrante = sistemaTotalUsd - totContado;
 
     diasResumen.push({ fecha, tasa, totBs, posBs: calc[2].bs, totContado, totSist: sistemaTotalUsd });
 
@@ -151,7 +154,9 @@ export async function POST(req: NextRequest) {
     tot.getCell(4).value = dash(totUsd);    tot.getCell(4).font = BOLD; if (totUsd)   tot.getCell(4).numFmt = NUM_FMT;
 
     if (sistemaTotalUsd > 0) {
-      tot.getCell(5).value = sistemaTotalUsd; tot.getCell(5).font = BOLD; tot.getCell(5).numFmt = NUM_FMT;
+      tot.getCell(5).value = sistemaTotalUsd;
+      tot.getCell(5).font = BOLD;
+      tot.getCell(5).numFmt = NUM_FMT;
       tot.getCell(6).value = sobrante;
       tot.getCell(6).numFmt = NUM_FMT;
       tot.getCell(6).font = { bold: true, color: { argb: sobrante >= 0 ? "FF27AE60" : "FFE74C3C" } };
