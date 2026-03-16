@@ -23,7 +23,6 @@ function dash(val: number): number | string {
 
 const YELLOW = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFFFF00" } };
 const BLUE   = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFBDD7EE" } };
-const GREEN  = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFD5E8D4" } };
 const BOLD   = { bold: true };
 const CENTER = { horizontal: "center" as const };
 const NUM_FMT = "#,##0.00";
@@ -40,7 +39,9 @@ function base64Puro(dataUrl: string): string {
 
 interface DiaResumen {
   fecha: string;
-  calc: Array<{ label: string; bs: number; usd: number; equiv: number; sist: number }>;
+  tasa: number;
+  totBs: number;
+  posBs: number;
   totContado: number;
   totSist: number;
 }
@@ -115,7 +116,7 @@ export async function POST(req: NextRequest) {
     const totContado = totEquiv + totUsd;
 
     // Guardar para la hoja General
-    diasResumen.push({ fecha, calc, totContado, totSist });
+    diasResumen.push({ fecha, tasa, totBs, posBs: calc[2].bs, totContado, totSist });
 
     const ws = wb.addWorksheet(diaName);
 
@@ -258,15 +259,15 @@ export async function POST(req: NextRequest) {
   const wsGen = wb.addWorksheet("General");
 
   wsGen.columns = [
-    { width: 20 }, // A: Método
-    { width: 13 }, // B: Lunes
-    { width: 13 }, // C: Martes
-    { width: 13 }, // D: Miércoles
-    { width: 13 }, // E: Jueves
-    { width: 13 }, // F: Viernes
-    { width: 13 }, // G: Sábado
-    { width: 13 }, // H: Domingo
-    { width: 15 }, // I: TOTAL
+    { width: 12 }, // A: Fecha
+    { width: 22 }, // B: Suma Bs
+    { width: 12 }, // C: Tasa
+    { width: 16 }, // D: Total $
+    { width: 22 }, // E: Punto de Venta Bs
+    { width: 22 }, // F: Otros Métodos Bs
+    { width: 16 }, // G: Restante $
+    { width: 16 }, // H: Sistema $
+    { width: 16 }, // I: Diferencia $
   ];
 
   // Row 1: Título
@@ -277,114 +278,80 @@ export async function POST(req: NextRequest) {
   tGen.alignment = CENTER;
 
   // Rows 2-4: Info
-  wsGen.getCell("A2").value = "Tienda";      wsGen.getCell("A2").font = BOLD;
-  wsGen.getCell("B2").value = tiendaNombre;  wsGen.getCell("B2").fill = YELLOW; wsGen.getCell("B2").font = BOLD;
-  wsGen.getCell("A3").value = "Semana";      wsGen.getCell("A3").font = BOLD;
+  wsGen.getCell("A2").value = "Tienda";     wsGen.getCell("A2").font = BOLD;
+  wsGen.getCell("B2").value = tiendaNombre; wsGen.getCell("B2").fill = YELLOW; wsGen.getCell("B2").font = BOLD;
+  wsGen.getCell("A3").value = "Semana";     wsGen.getCell("A3").font = BOLD;
   wsGen.getCell("B3").value = `${diasResumen[0]?.fecha ?? ""} - ${diasResumen[6]?.fecha ?? ""}`;
   wsGen.getCell("B3").font = BOLD;
-  wsGen.getCell("A4").value = "Porcentaje";  wsGen.getCell("A4").font = BOLD;
+  wsGen.getCell("A4").value = "Porcentaje"; wsGen.getCell("A4").font = BOLD;
   wsGen.getCell("B4").value = `${porcentaje}%`; wsGen.getCell("B4").fill = YELLOW; wsGen.getCell("B4").font = BOLD;
 
-  // Row 6: Cabecera de días
-  const genHeader = wsGen.getRow(6);
-  genHeader.getCell(1).value = "Método de Pago";
-  for (let i = 0; i < 7; i++) {
-    genHeader.getCell(i + 2).value = `${diasSemana[i]}\n${diasResumen[i]?.fecha ?? ""}`;
-    genHeader.getCell(i + 2).alignment = { horizontal: "center" as const, wrapText: true };
-  }
-  genHeader.getCell(9).value = "TOTAL SEMANA";
-  genHeader.eachCell(c => {
-    c.font = BOLD;
-    c.fill = BLUE;
-    if (!c.alignment?.wrapText) c.alignment = CENTER;
+  // Row 6: Cabeceras columnas
+  const colHeaders = ["FECHA", "SUMA Bs", "TASA", "TOTAL $", "PUNTO DE VENTA Bs", "OTROS MÉTODOS Bs", "RESTANTE $", "SISTEMA $", "DIFERENCIA $"];
+  colHeaders.forEach((h, i) => {
+    const cell = wsGen.getRow(6).getCell(i + 1);
+    cell.value = h;
+    cell.font = BOLD;
+    cell.fill = BLUE;
+    cell.alignment = { horizontal: "center", wrapText: true };
   });
-  wsGen.getRow(6).height = 32;
+  wsGen.getRow(6).height = 36;
 
-  // Rows 7-12: un método por fila (equiv $ contado)
-  const metodoLabels = ["Efectivo Tienda", "Efectivo Delivery", "Punto de Venta", "Pago Móvil", "Zelle", "Depósito Banco"];
-  metodoLabels.forEach((label, mIdx) => {
-    const row = wsGen.getRow(7 + mIdx);
-    row.getCell(1).value = label;
-    let total = 0;
-    for (let d = 0; d < 7; d++) {
-      const m = diasResumen[d]?.calc[mIdx];
-      const val = m ? m.equiv + m.usd : 0;
-      if (val !== 0) {
-        row.getCell(d + 2).value = val;
-        row.getCell(d + 2).numFmt = NUM_FMT;
-      }
-      total += val;
+  // Rows 7-13: un día por fila
+  let grandSumaBs = 0, grandTotalUsd = 0, grandPosBs = 0, grandOtrosBs = 0, grandRestante = 0, grandSist = 0;
+
+  diasResumen.forEach((dr, i) => {
+    const row = wsGen.getRow(7 + i);
+    const otrosBs  = dr.posBs - dr.totBs;                        // negativo = otros métodos cubren la diferencia
+    const restante = dr.tasa > 0 ? otrosBs / dr.tasa : 0;
+    const diff     = dr.totSist > 0 ? dr.totContado - dr.totSist : null;
+
+    row.getCell(1).value = dr.fecha;
+    row.getCell(2).value = dr.totBs;     row.getCell(2).numFmt = NUM_FMT;
+    row.getCell(3).value = dr.tasa || "-"; if (dr.tasa) { row.getCell(3).numFmt = NUM_FMT; }
+    row.getCell(4).value = dr.totContado; row.getCell(4).numFmt = NUM_FMT;
+    row.getCell(5).value = dr.posBs;     row.getCell(5).numFmt = NUM_FMT;
+    row.getCell(6).value = otrosBs;      row.getCell(6).numFmt = NUM_FMT;
+    row.getCell(7).value = restante;     row.getCell(7).numFmt = NUM_FMT;
+    if (dr.totSist > 0) {
+      row.getCell(8).value = dr.totSist; row.getCell(8).numFmt = NUM_FMT;
     }
-    if (total !== 0) {
-      row.getCell(9).value = total;
+    if (diff !== null) {
+      row.getCell(9).value = diff;
       row.getCell(9).numFmt = NUM_FMT;
-      row.getCell(9).font = BOLD;
-      row.getCell(9).fill = GREEN;
+      row.getCell(9).font = { color: { argb: diff >= 0 ? "FF27AE60" : "FFE74C3C" } };
     }
+
+    grandSumaBs   += dr.totBs;
+    grandTotalUsd += dr.totContado;
+    grandPosBs    += dr.posBs;
+    grandOtrosBs  += otrosBs;
+    grandRestante += restante;
+    grandSist     += dr.totSist;
   });
 
-  // Row 14: TOTAL CONTADO $
-  const rowTC = wsGen.getRow(14);
-  rowTC.getCell(1).value = "TOTAL CONTADO $"; rowTC.getCell(1).font = BOLD; rowTC.getCell(1).fill = BLUE;
-  let grandContado = 0;
-  for (let d = 0; d < 7; d++) {
-    const val = diasResumen[d]?.totContado ?? 0;
-    if (val !== 0) {
-      rowTC.getCell(d + 2).value = val;
-      rowTC.getCell(d + 2).numFmt = NUM_FMT;
-      rowTC.getCell(d + 2).font = BOLD;
-    }
-    grandContado += val;
-  }
-  rowTC.getCell(9).value = grandContado;
-  rowTC.getCell(9).numFmt = NUM_FMT;
-  rowTC.getCell(9).font = { bold: true, size: 12 };
-  rowTC.getCell(9).fill = YELLOW;
-
-  // Row 15: TOTAL SISTEMA $
-  const rowTS = wsGen.getRow(15);
-  rowTS.getCell(1).value = "TOTAL SISTEMA $"; rowTS.getCell(1).font = BOLD; rowTS.getCell(1).fill = BLUE;
-  let grandSist = 0;
-  for (let d = 0; d < 7; d++) {
-    const val = diasResumen[d]?.totSist ?? 0;
-    if (val > 0) {
-      rowTS.getCell(d + 2).value = val;
-      rowTS.getCell(d + 2).numFmt = NUM_FMT;
-      rowTS.getCell(d + 2).font = BOLD;
-    }
-    grandSist += val;
-  }
+  // Row 15: TOTALES
+  const rowTot = wsGen.getRow(15);
+  rowTot.getCell(1).value = "TOTAL";
+  [[2, grandSumaBs], [4, grandTotalUsd], [5, grandPosBs], [6, grandOtrosBs], [7, grandRestante]].forEach(([col, val]) => {
+    rowTot.getCell(col as number).value = val as number;
+    rowTot.getCell(col as number).numFmt = NUM_FMT;
+    rowTot.getCell(col as number).font = BOLD;
+    rowTot.getCell(col as number).fill = YELLOW;
+  });
+  rowTot.getCell(1).font = BOLD; rowTot.getCell(1).fill = YELLOW;
   if (grandSist > 0) {
-    rowTS.getCell(9).value = grandSist;
-    rowTS.getCell(9).numFmt = NUM_FMT;
-    rowTS.getCell(9).font = { bold: true, size: 12 };
-    rowTS.getCell(9).fill = YELLOW;
+    rowTot.getCell(8).value = grandSist; rowTot.getCell(8).numFmt = NUM_FMT;
+    rowTot.getCell(8).font = BOLD; rowTot.getCell(8).fill = YELLOW;
+    const grandDiff = grandTotalUsd - grandSist;
+    rowTot.getCell(9).value = grandDiff; rowTot.getCell(9).numFmt = NUM_FMT;
+    rowTot.getCell(9).font = { bold: true, color: { argb: grandDiff >= 0 ? "FF27AE60" : "FFE74C3C" } };
+    rowTot.getCell(9).fill = YELLOW;
   }
 
-  // Row 16: DIFERENCIA (Sobrante / Faltante)
-  const rowDif = wsGen.getRow(16);
-  rowDif.getCell(1).value = "DIFERENCIA $"; rowDif.getCell(1).font = BOLD; rowDif.getCell(1).fill = BLUE;
-  for (let d = 0; d < 7; d++) {
-    const contado = diasResumen[d]?.totContado ?? 0;
-    const sist = diasResumen[d]?.totSist ?? 0;
-    if (sist > 0) {
-      const diff = contado - sist;
-      rowDif.getCell(d + 2).value = diff;
-      rowDif.getCell(d + 2).numFmt = NUM_FMT;
-      rowDif.getCell(d + 2).font = { bold: true, color: { argb: diff >= 0 ? "FF27AE60" : "FFE74C3C" } };
-    }
-  }
-  if (grandSist > 0) {
-    const grandDiff = grandContado - grandSist;
-    rowDif.getCell(9).value = grandDiff;
-    rowDif.getCell(9).numFmt = NUM_FMT;
-    rowDif.getCell(9).font = { bold: true, size: 12, color: { argb: grandDiff >= 0 ? "FF27AE60" : "FFE74C3C" } };
-    rowDif.getCell(9).fill = YELLOW;
-  }
-
-  // Bordes tabla General (filas 6-16)
+  // Bordes tabla General (filas 6-15)
   const borderGen = { style: "thin" as const };
-  for (let r = 6; r <= 16; r++) {
+  for (let r = 6; r <= 15; r++) {
     for (let c = 1; c <= 9; c++) {
       wsGen.getRow(r).getCell(c).border = {
         top: borderGen, bottom: borderGen,
