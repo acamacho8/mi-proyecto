@@ -88,6 +88,7 @@ interface DiaData {
   b16: number;
   c9: number; c10: number; c11: number; c12: number; c13: number; c14: number;
   c23: number; b27: number;
+  posSelectedIdxs: Set<number>;
 }
 
 // ── POST handler ───────────────────────────────────────────────────────────────
@@ -131,14 +132,30 @@ export async function POST(req: NextRequest) {
     const b18 = b16 * pct;   // meta ajustada
     const b19 = pct;          // % mínimo a reportar
 
-    // C column (ADJUSTED) — pct aplicado a TODOS los métodos por igual
+    // C column (ADJUSTED) — pct a todos los métodos; POS usa cajas enteras
     const c9  = b9  * pct;
     const c10 = b10 * pct;
-    const c11 = b11 * pct;   // POS también ajustado — nunca queda en cero
     const c12 = b12 * pct;
     const c13 = b13 * pct;
     const c14 = b14 * pct;
-    const c23 = c9 + c10 + c11 + c12 + c13 + c14; // = b16 * pct
+
+    // POS: seleccionar cajas enteras (desc) hasta alcanzar el objetivo
+    type CounterItem = { nombre: string; tasa: number; puntoSis: number; movilSis: number; vesSisTienda: number; usdSisTienda: number; vesSisDelivery: number; usdSisDelivery: number; zelleSis: number };
+    const countersArr: CounterItem[] = Array.isArray(d.counters) ? d.counters : [];
+    const posCountersUsd = countersArr
+      .map((c, idx) => ({ idx, usd: c.puntoSis / (c.tasa > 0 ? c.tasa : t) }))
+      .filter(c => c.usd > 0)
+      .sort((a, b) => b.usd - a.usd);
+    const posTarget = b11 * pct;
+    const posSelectedIdxs = new Set<number>();
+    let posAccum = 0;
+    for (const pc of posCountersUsd) {
+      if (posAccum >= posTarget) break;
+      posAccum += pc.usd;
+      posSelectedIdxs.add(pc.idx);
+    }
+    const c11 = posCountersUsd.length > 0 ? posAccum : b11 * pct;
+    const c23 = c9 + c10 + c11 + c12 + c13 + c14;
 
     // INGRESOS section totals
     const b5 = b17;            // total Bs
@@ -147,7 +164,7 @@ export async function POST(req: NextRequest) {
 
     const b27 = b16 - c23;     // sobrante = real - ajustado
 
-    diaData.push({ name:diaName, fecha, b5, b6, b7, b9, b10, b11, b12, b13, b14, b16, c9, c10, c11, c12, c13, c14, c23, b27 });
+    diaData.push({ name:diaName, fecha, b5, b6, b7, b9, b10, b11, b12, b13, b14, b16, c9, c10, c11, c12, c13, c14, c23, b27, posSelectedIdxs });
 
     // ── Sheet ──────────────────────────────────────────────────────────────────
     const ws = wb.addWorksheet(diaName);
@@ -207,11 +224,20 @@ export async function POST(req: NextRequest) {
       [14, "Depósito Banco",    b14, c14, false],
     ];
 
-    pmRows.forEach(([row, label, bVal, cVal]) => {
+    pmRows.forEach(([row, label, bVal, cVal, isPos]) => {
       ws.getCell(`A${row}`).value = label; lbl(ws.getCell(`A${row}`));
       ws.getCell(`B${row}`).value = bVal;  inp(ws.getCell(`B${row}`));
-      fml(ws.getCell(`C${row}`), `=B${row}*B19`, cVal);
-      empty(ws.getCell(`D${row}`));
+      if (isPos && posCountersUsd.length > 0) {
+        // POS: valor de cajas enteras seleccionadas (no fórmula pct)
+        ws.getCell(`C${row}`).value = cVal; calc(ws.getCell(`C${row}`), NUM);
+        const totPosCount = posCountersUsd.length;
+        const selCount    = posSelectedIdxs.size;
+        ws.getCell(`D${row}`).value = `${selCount} de ${totPosCount} cajas`;
+        lbl(ws.getCell(`D${row}`), false, C_CALC);
+      } else {
+        fml(ws.getCell(`C${row}`), `=B${row}*B19`, cVal);
+        empty(ws.getCell(`D${row}`));
+      }
     });
 
     // ── CÁLCULOS section ───────────────────────────────────────────────────────
@@ -444,9 +470,12 @@ export async function POST(req: NextRequest) {
       lbl(wp.getCell(`A${wpRow}`), false, C_CALC);
       wpRow++;
     } else {
-      // Per-counter rows
-      counters.forEach(ctr => {
+      // Per-counter rows (green = seleccionada para el reporte, gris = omitida)
+      const selIdxs = diaData[i]?.posSelectedIdxs ?? new Set<number>();
+      counters.forEach((ctr, ctrIdx) => {
         const t = ctr.tasa > 0 ? ctr.tasa : 1;
+        const isSelected = selIdxs.has(ctrIdx);
+        const rowBg = isSelected ? "FFE2EFDA" : "FFF2F2F2"; // verde claro / gris
         const totalUsd =
           ctr.puntoSis / t +
           ctr.movilSis / t +
@@ -455,7 +484,7 @@ export async function POST(req: NextRequest) {
           ctr.zelleSis;
 
         const row = [
-          ctr.nombre,
+          (isSelected ? "✓ " : "✗ ") + ctr.nombre,
           ctr.puntoSis / t,
           ctr.movilSis,
           ctr.vesSisTienda,
@@ -470,12 +499,13 @@ export async function POST(req: NextRequest) {
           const cell = wp.getCell(wpRow, ci + 1);
           cell.value = v;
           cell.border = Border;
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: rowBg } };
           if (ci === 0) {
-            cell.font = { name: "Arial", size: 9 };
+            cell.font = { name: "Arial", size: 9, bold: isSelected };
             cell.alignment = { horizontal: "left" };
           } else {
             cell.numFmt = ci === 8 ? '#,##0.00' : NUM;
-            cell.font = { name: "Arial", size: 9 };
+            cell.font = { name: "Arial", size: 9, bold: isSelected };
             cell.alignment = { horizontal: "right" };
           }
         });
