@@ -34,7 +34,6 @@ const C_LABEL  = "FFEAEAEA";
 // ── Number formats ─────────────────────────────────────────────────────────────
 const NUM = '#,##0.00;(#,##0.00);"-"';
 const PCT = '0.0%;(0.0%);"-"';
-const FAC = '0.0000;(0.0000);"-"';
 
 // ── Style helpers ──────────────────────────────────────────────────────────────
 const TBorder = { style: "thin" as const, color: { argb: "FFBFBFBF" } };
@@ -129,19 +128,17 @@ export async function POST(req: NextRequest) {
 
     const b16 = b9 + b10 + b11 + b12 + b13 + b14;
     const b17 = efTBs + efDBs + posBs + pmBs + depBs; // total Bs
-    const b18 = b9 + b10 + b12 + b13 + b14;           // otros (excl POS)
-    const b19 = b16 * pct;                              // meta ajustada
-    const b20 = pct;
-    const b21 = b18 > 0 ? Math.max(0, (b19 - b11) / b18) : 0; // factor
+    const b18 = b16 * pct;   // meta ajustada
+    const b19 = pct;          // % mínimo a reportar
 
-    // C column (ADJUSTED)
-    const c9  = b9  * b21;
-    const c10 = b10 * b21;
-    const c11 = b11;           // POS 100%
-    const c12 = b12 * b21;
-    const c13 = b13 * b21;
-    const c14 = b14 * b21;
-    const c23 = c9 + c10 + c11 + c12 + c13 + c14;
+    // C column (ADJUSTED) — pct aplicado a TODOS los métodos por igual
+    const c9  = b9  * pct;
+    const c10 = b10 * pct;
+    const c11 = b11 * pct;   // POS también ajustado — nunca queda en cero
+    const c12 = b12 * pct;
+    const c13 = b13 * pct;
+    const c14 = b14 * pct;
+    const c23 = c9 + c10 + c11 + c12 + c13 + c14; // = b16 * pct
 
     // INGRESOS section totals
     const b5 = b17;            // total Bs
@@ -210,20 +207,11 @@ export async function POST(req: NextRequest) {
       [14, "Depósito Banco",    b14, c14, false],
     ];
 
-    pmRows.forEach(([row, label, bVal, cVal, isPOS]) => {
+    pmRows.forEach(([row, label, bVal, cVal]) => {
       ws.getCell(`A${row}`).value = label; lbl(ws.getCell(`A${row}`));
       ws.getCell(`B${row}`).value = bVal;  inp(ws.getCell(`B${row}`));
-      if (isPOS) {
-        fml(ws.getCell(`C${row}`), `=B${row}`, cVal);
-        const note = ws.getCell(`D${row}`);
-        note.value = "Sin ajuste (100%)";
-        note.font  = { name:"Arial", italic:true, color:{ argb:"FF7F7F7F" }, size:9 };
-        note.alignment = { horizontal:"center" };
-        note.border = Border;
-      } else {
-        fml(ws.getCell(`C${row}`), `=IF(B18=0,0,B${row}*B21)`, cVal);
-        empty(ws.getCell(`D${row}`));
-      }
+      fml(ws.getCell(`C${row}`), `=B${row}*B19`, cVal);
+      empty(ws.getCell(`D${row}`));
     });
 
     // ── CÁLCULOS section ───────────────────────────────────────────────────────
@@ -238,63 +226,51 @@ export async function POST(req: NextRequest) {
     ws.getCell("B17").value = b5; calc(ws.getCell("B17"), NUM, C_CALC);
     empty(ws.getCell("C17")); empty(ws.getCell("D17"));
 
-    ws.getCell("A18").value = "Otros Métodos (excl. POS) $"; lbl(ws.getCell("A18"), false, C_CALC);
-    fml(ws.getCell("B18"), "=B9+B10+B12+B13+B14", b18, NUM, C_CALC);
+    ws.getCell("A18").value = `Meta Ajustada (${pct*100}%) $`; lbl(ws.getCell("A18"), false, C_CALC);
+    fml(ws.getCell("B18"), "=B16*B19", b18, NUM, C_CALC);
     empty(ws.getCell("C18")); empty(ws.getCell("D18"));
 
-    ws.getCell("A19").value = `Meta Ajustada (${pct*100}%) $`; lbl(ws.getCell("A19"), false, C_CALC);
-    fml(ws.getCell("B19"), "=B16*B20", b19, NUM, C_CALC);
+    ws.getCell("A19").value = "% Mínimo a Reportar"; lbl(ws.getCell("A19"), false, C_CALC);
+    ws.getCell("B19").value = b19; inp(ws.getCell("B19"), PCT);
     empty(ws.getCell("C19")); empty(ws.getCell("D19"));
 
-    ws.getCell("A20").value = "% Mínimo a Reportar"; lbl(ws.getCell("A20"), false, C_CALC);
-    ws.getCell("B20").value = b20; inp(ws.getCell("B20"), PCT);
-    empty(ws.getCell("C20")); empty(ws.getCell("D20"));
-
-    ws.getCell("A21").value = "Factor de Ajuste"; lbl(ws.getCell("A21"), false, C_CALC);
-    fml(ws.getCell("B21"), "=IF(B18=0,0,MAX(0,(B19-B11)/B18))", b21, FAC, C_CALC);
-    empty(ws.getCell("C21")); empty(ws.getCell("D21"));
-
     // ── TOTALES REPORTADOS ─────────────────────────────────────────────────────
-    ws.mergeCells("A22:D22");
-    ws.getCell("A22").value = "TOTALES REPORTADOS"; hdr(ws.getCell("A22"), CH_DARK, 11);
+    ws.mergeCells("A20:D20");
+    ws.getCell("A20").value = "TOTALES REPORTADOS"; hdr(ws.getCell("A20"), CH_DARK, 11);
 
-    ws.getCell("A23").value = "Sistema Total Ajustado $"; lbl(ws.getCell("A23"), true, C_HILITE);
-    fml(ws.getCell("B23"), "=B16", b16, NUM, C_CALC);
-    const c23cell = ws.getCell("C23");
+    ws.getCell("A21").value = "Sistema Total Ajustado $"; lbl(ws.getCell("A21"), true, C_HILITE);
+    fml(ws.getCell("B21"), "=B16", b16, NUM, C_CALC);
+    const c23cell = ws.getCell("C21");
     c23cell.value  = { formula:"=C9+C10+C11+C12+C13+C14", result: c23 };
     c23cell.font   = { name:"Arial", bold:true, color:{ argb:"FF000000" } };
     c23cell.numFmt = NUM; c23cell.border = Border;
     c23cell.alignment = { horizontal:"right" };
     c23cell.fill  = { type:"pattern", pattern:"solid", fgColor:{ argb:C_HILITE } };
-    empty(ws.getCell("D23"));
-
-    ws.getCell("A24").value = "Sistema Total Bs (ref.)"; lbl(ws.getCell("A24"), false, C_CALC);
-    fml(ws.getCell("B24"), "=B17", b5, NUM, C_CALC);
-    empty(ws.getCell("C24")); empty(ws.getCell("D24"));
+    empty(ws.getCell("D21"));
 
     const pctVerif = b16 > 0 ? c23 / b16 : 0;
-    ws.getCell("A25").value = "% del Total Real (verificación)"; lbl(ws.getCell("A25"), false, C_CALC);
-    empty(ws.getCell("B25"));
-    fml(ws.getCell("C25"), "=IF(B16=0,0,C23/B16)", pctVerif, PCT, C_CALC);
-    empty(ws.getCell("D25"));
+    ws.getCell("A22").value = "% del Total Real (verificación)"; lbl(ws.getCell("A22"), false, C_CALC);
+    empty(ws.getCell("B22"));
+    fml(ws.getCell("C22"), "=IF(B16=0,0,C21/B16)", pctVerif, PCT, C_CALC);
+    empty(ws.getCell("D22"));
 
     // ── DIFERENCIAS ────────────────────────────────────────────────────────────
-    ws.mergeCells("A26:D26");
-    ws.getCell("A26").value = "DIFERENCIAS"; hdr(ws.getCell("A26"), CH_GREEN, 10);
+    ws.mergeCells("A23:D23");
+    ws.getCell("A23").value = "DIFERENCIAS"; hdr(ws.getCell("A23"), CH_GREEN, 10);
 
-    ws.getCell("A27").value = "Sobrante / Faltante"; lbl(ws.getCell("A27"));
-    ws.getCell("B27").value = b27; inp(ws.getCell("B27"));
-    fml(ws.getCell("C27"), "=B27", b27, NUM);
-    const sobCell = ws.getCell("C27");
+    ws.getCell("A24").value = "Sobrante / Faltante"; lbl(ws.getCell("A24"));
+    ws.getCell("B24").value = b27; inp(ws.getCell("B24"));
+    fml(ws.getCell("C24"), "=B24", b27, NUM);
+    const sobCell = ws.getCell("C24");
     sobCell.font = { name:"Arial", bold:true, color:{ argb: b27 >= 0 ? "FF008000" : "FFCC0000" } };
-    empty(ws.getCell("D27"));
+    empty(ws.getCell("D24"));
 
     // Freeze rows 1-3
     ws.views = [{ state:"frozen", xSplit:0, ySplit:3 }];
 
     // ── Images ─────────────────────────────────────────────────────────────────
     const imgs = imagenes?.[i];
-    let filaImg = 29;
+    let filaImg = 26;
     const addImg = (dataUrl: string, titulo: string) => {
       ws.getCell(`A${filaImg}`).value = titulo;
       ws.getCell(`A${filaImg}`).font  = { bold:true, color:{ argb:"FFCC0000" } };
