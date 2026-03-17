@@ -161,10 +161,20 @@ export async function POST(req: NextRequest) {
     ws.getCell("C2").value = tasa || 0;    inp(ws.getCell("C2"), '#,##0.00 "Bs/$"');
 
     // Row 3: Column headers
-    [["A","CONCEPTO"],["B","VALOR ($)"],["C","NOTA"]].forEach(([col, title]) => {
+    [["A","CONCEPTO"],["B","VALOR ($)"],["C","EQUIV. Bs"]].forEach(([col, title]) => {
       ws.getCell(`${col}3`).value = title; hdr(ws.getCell(`${col}3`), CH_MID, 10);
     });
     ws.getRow(3).height = 24;
+
+    // Helper: set Bs equivalent in column C
+    const BSF = '#,##0.00';
+    const setBs = (cell: ExcelJS.Cell, usd: number, bg?: string) => {
+      cell.value = usd * t;
+      cell.numFmt = BSF; cell.border = Border;
+      cell.alignment = { horizontal: "right" };
+      cell.font = { name: "Arial", size: 10 };
+      if (bg) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bg } };
+    };
 
     // ── SISTEMA section ────────────────────────────────────────────────────────
     ws.mergeCells("A4:C4");
@@ -172,7 +182,7 @@ export async function POST(req: NextRequest) {
 
     ws.getCell("A5").value = "Sistema $"; lbl(ws.getCell("A5"));
     ws.getCell("B5").value = sistemaUsd;  calc(ws.getCell("B5"), NUM, C_CALC);
-    empty(ws.getCell("C5"));
+    setBs(ws.getCell("C5"), sistemaUsd, C_CALC);
 
     // ── MEDIOS DE PAGO section ─────────────────────────────────────────────────
     ws.mergeCells("A6:C6");
@@ -191,7 +201,7 @@ export async function POST(req: NextRequest) {
     pmRows.forEach(([row, label, cVal]) => {
       ws.getCell(`A${row}`).value = label; lbl(ws.getCell(`A${row}`));
       ws.getCell(`B${row}`).value = cVal;  inp(ws.getCell(`B${row}`));
-      empty(ws.getCell(`C${row}`));
+      setBs(ws.getCell(`C${row}`), cVal);
     });
 
     // ── CÁLCULOS section ───────────────────────────────────────────────────────
@@ -200,7 +210,7 @@ export async function POST(req: NextRequest) {
 
     ws.getCell("A14").value = "Total Métodos $"; lbl(ws.getCell("A14"), false, C_CALC);
     fml(ws.getCell("B14"), "=B7+B8+B9+B10+B11+B12", c23, NUM, C_CALC);
-    empty(ws.getCell("C14"));
+    setBs(ws.getCell("C14"), c23, C_CALC);
 
     ws.getCell("A15").value = "% Aplicado"; lbl(ws.getCell("A15"), false, C_CALC);
     ws.getCell("B15").value = pct; inp(ws.getCell("B15"), PCT);
@@ -217,20 +227,19 @@ export async function POST(req: NextRequest) {
     totCell.numFmt = NUM; totCell.border = Border;
     totCell.alignment = { horizontal:"right" };
     totCell.fill  = { type:"pattern", pattern:"solid", fgColor:{ argb:C_HILITE } };
-    empty(ws.getCell("C17"));
+    setBs(ws.getCell("C17"), c23, C_HILITE);
 
     // ── DIFERENCIAS ────────────────────────────────────────────────────────────
     ws.mergeCells("A18:C18");
     ws.getCell("A18").value = "DIFERENCIAS"; hdr(ws.getCell("A18"), CH_GREEN, 10);
 
-    const sobPct = sistemaUsd > 0 ? b27 / sistemaUsd : 0;
     ws.getCell("A19").value = "Sobrante / Faltante"; lbl(ws.getCell("A19"));
     const sobBCell = ws.getCell("B19");
     sobBCell.value  = b27; sobBCell.numFmt = NUM; sobBCell.border = Border;
     sobBCell.alignment = { horizontal:"right" };
     sobBCell.font = { name:"Arial", bold:true, color:{ argb: b27 >= 0 ? "FF008000" : "FFCC0000" } };
     const sobCCell = ws.getCell("C19");
-    sobCCell.value  = sobPct; sobCCell.numFmt = "0.000%"; sobCCell.border = Border;
+    sobCCell.value  = b27 * t; sobCCell.numFmt = BSF; sobCCell.border = Border;
     sobCCell.alignment = { horizontal:"right" };
     sobCCell.font = { name:"Arial", color:{ argb: b27 >= 0 ? "FF008000" : "FFCC0000" } };
 
