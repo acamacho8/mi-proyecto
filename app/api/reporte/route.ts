@@ -170,7 +170,8 @@ export async function POST(req: NextRequest) {
     const b6 = b17 / t;        // equiv $
     const b7 = efTDir + efDDir + zelleD; // direct $
 
-    const b27 = b16 - c23;     // sobrante = real - ajustado
+    const posTarget2 = b16 * pct; // objetivo total al %
+    const b27 = posTarget2 - c23; // sobrante = objetivo CRM - suma métodos reportados
 
     diaData.push({ name:diaName, fecha, b5, b6, b7, b9, b10, b11, b12, b13, b14, b16, c9, c10, c11, c12, c13, c14, c23, b27, posSelectedIdxs });
 
@@ -272,7 +273,8 @@ export async function POST(req: NextRequest) {
     ws.mergeCells("A20:C20");
     ws.getCell("A20").value = "DIFERENCIAS"; hdr(ws.getCell("A20"), CH_GREEN, 10);
 
-    const sobPct = b16 > 0 ? b27 / b16 : 0;
+    const posTarget2val = b16 * pct;
+    const sobPct = posTarget2val > 0 ? b27 / posTarget2val : 0;
     ws.getCell("A21").value = "Sobrante / Faltante"; lbl(ws.getCell("A21"));
     const sobBCell = ws.getCell("B21");
     sobBCell.value  = b27; sobBCell.numFmt = NUM; sobBCell.border = Border;
