@@ -129,8 +129,7 @@ export async function POST(req: NextRequest) {
 
     const b16 = b9 + b10 + b11 + b12 + b13 + b14;
     const b17 = efTBs + efDBs + posBs + pmBs + depBs; // total Bs
-    const b18 = b16 * pct;   // meta ajustada
-    const b19 = pct;          // % mínimo a reportar
+    const b19 = pct;          // % aplicado
 
     // C column (ADJUSTED) — pct a todos los métodos; POS usa cajas enteras
     const c9  = b9  * pct;
@@ -178,127 +177,111 @@ export async function POST(req: NextRequest) {
     // ── Sheet ──────────────────────────────────────────────────────────────────
     const ws = wb.addWorksheet(diaName);
     ws.columns = [
-      { width: 32 }, // A: CONCEPTO
-      { width: 20 }, // B: VALOR REAL
-      { width: 20 }, // C: VALOR AJUSTADO
-      { width: 22 }, // D: NOTA
+      { width: 34 }, // A: CONCEPTO
+      { width: 22 }, // B: VALOR ($)
+      { width: 22 }, // C: NOTA
     ];
 
     // Row 1: Title
-    ws.mergeCells("A1:D1");
+    ws.mergeCells("A1:C1");
     ws.getCell("A1").value = `REPORTE DE VENTAS — ${diaName.toUpperCase()}`;
     hdr(ws.getCell("A1"), CH_DARK, 14);
     ws.getRow(1).height = 32;
 
-    // Row 2: Fecha / Tienda / Tasa
-    ws.getCell("A2").value = "Tienda:"; lbl(ws.getCell("A2"), true, C_LABEL);
-    ws.getCell("B2").value = tiendaNombre; inp(ws.getCell("B2"), "@");
-    ws.getCell("C2").value = fecha; inp(ws.getCell("C2"), "DD/MM/YYYY");
-    ws.getCell("D2").value = tasa || "-"; inp(ws.getCell("D2"), '#,##0.00;"-"');
+    // Row 2: Tienda | Fecha | Tasa
+    ws.getCell("A2").value = tiendaNombre; inp(ws.getCell("A2"), "@");
+    ws.getCell("B2").value = fecha;        inp(ws.getCell("B2"), "DD/MM/YYYY");
+    ws.getCell("C2").value = tasa || 0;    inp(ws.getCell("C2"), '#,##0.00 "Bs/$"');
 
     // Row 3: Column headers
-    [["A","CONCEPTO"],["B","VALOR REAL ($)"],["C",`VALOR AJUSTADO (${pct*100}%)`],["D","TASA / NOTA"]].forEach(([col, title]) => {
+    [["A","CONCEPTO"],["B","VALOR ($)"],["C","NOTA"]].forEach(([col, title]) => {
       ws.getCell(`${col}3`).value = title; hdr(ws.getCell(`${col}3`), CH_MID, 10);
     });
     ws.getRow(3).height = 24;
 
     // ── INGRESOS section ───────────────────────────────────────────────────────
-    ws.mergeCells("A4:D4");
+    ws.mergeCells("A4:C4");
     ws.getCell("A4").value = "INGRESOS"; hdr(ws.getCell("A4"), CH_GREEN, 10);
 
-    const ingRows: [string, number, string][] = [
-      ["Ingresos Bs",       b5, "=B5"],
-      ["Ingreso Equiv $",   b6, "=B6"],
-      ["Ingreso $ Directo", b7, "=B7"],
+    const ingRows: [string, number][] = [
+      ["Ingresos Bs",       b5],
+      ["Ingreso Equiv $",   b6],
+      ["Ingreso $ Directo", b7],
     ];
-    ingRows.forEach(([label, val, formula], j) => {
+    ingRows.forEach(([label, val], j) => {
       const r = 5 + j;
       ws.getCell(`A${r}`).value = label; lbl(ws.getCell(`A${r}`));
       ws.getCell(`B${r}`).value = val;   calc(ws.getCell(`B${r}`), NUM, C_CALC);
-      fml(ws.getCell(`C${r}`), formula, val);
-      empty(ws.getCell(`D${r}`));
+      empty(ws.getCell(`C${r}`));
     });
 
     // ── MEDIOS DE PAGO section ─────────────────────────────────────────────────
-    ws.mergeCells("A8:D8");
+    ws.mergeCells("A8:C8");
     ws.getCell("A8").value = "MEDIOS DE PAGO"; hdr(ws.getCell("A8"), CH_GREEN, 10);
 
-    type PM = [number, string, number, number, boolean];
+    type PM = [number, string, number, boolean];
     const pmRows: PM[] = [
-      [9,  "Efectivo Tienda",   b9,  c9,  false],
-      [10, "Efectivo Delivery", b10, c10, false],
-      [11, "Punto de Venta",    b11, c11, true ],
-      [12, "Pago Móvil",        b12, c12, false],
-      [13, "Zelle",             b13, c13, false],
-      [14, "Depósito Banco",    b14, c14, false],
+      [9,  "Efectivo Tienda",   c9,  false],
+      [10, "Efectivo Delivery", c10, false],
+      [11, "Punto de Venta",    c11, true ],
+      [12, "Pago Móvil",        c12, false],
+      [13, "Zelle",             c13, false],
+      [14, "Depósito Banco",    c14, false],
     ];
 
-    pmRows.forEach(([row, label, bVal, cVal, isPos]) => {
+    pmRows.forEach(([row, label, cVal, isPos]) => {
       ws.getCell(`A${row}`).value = label; lbl(ws.getCell(`A${row}`));
-      ws.getCell(`B${row}`).value = bVal;  inp(ws.getCell(`B${row}`));
+      ws.getCell(`B${row}`).value = cVal;  inp(ws.getCell(`B${row}`));
       if (isPos && posCountersUsd.length > 0) {
-        // POS: valor de cajas enteras seleccionadas (no fórmula pct)
-        ws.getCell(`C${row}`).value = cVal; calc(ws.getCell(`C${row}`), NUM);
-        const totPosCount = posCountersUsd.length;
         const selCount    = posSelectedIdxs.size;
-        ws.getCell(`D${row}`).value = `${selCount} de ${totPosCount} cajas`;
-        lbl(ws.getCell(`D${row}`), false, C_CALC);
+        const totPosCount = posCountersUsd.length;
+        ws.getCell(`C${row}`).value = `${selCount} de ${totPosCount} cajas`;
+        lbl(ws.getCell(`C${row}`), false, C_CALC);
       } else {
-        fml(ws.getCell(`C${row}`), `=B${row}*B19`, cVal);
-        empty(ws.getCell(`D${row}`));
+        empty(ws.getCell(`C${row}`));
       }
     });
 
     // ── CÁLCULOS section ───────────────────────────────────────────────────────
-    ws.mergeCells("A15:D15");
+    ws.mergeCells("A15:C15");
     ws.getCell("A15").value = "CÁLCULOS"; hdr(ws.getCell("A15"), CH_MID, 10);
 
-    ws.getCell("A16").value = "Sistema Total Real $"; lbl(ws.getCell("A16"), false, C_CALC);
-    fml(ws.getCell("B16"), "=B9+B10+B11+B12+B13+B14", b16, NUM, C_CALC);
-    empty(ws.getCell("C16")); empty(ws.getCell("D16"));
+    // B9-B14 son cVal, por lo que =B9+..+B14 = c23
+    ws.getCell("A16").value = "Total Métodos $"; lbl(ws.getCell("A16"), false, C_CALC);
+    fml(ws.getCell("B16"), "=B9+B10+B11+B12+B13+B14", c23, NUM, C_CALC);
+    empty(ws.getCell("C16"));
 
-    ws.getCell("A17").value = "Sistema Total Bs"; lbl(ws.getCell("A17"), false, C_CALC);
-    ws.getCell("B17").value = b5; calc(ws.getCell("B17"), NUM, C_CALC);
-    empty(ws.getCell("C17")); empty(ws.getCell("D17"));
-
-    ws.getCell("A18").value = `Meta Ajustada (${pct*100}%) $`; lbl(ws.getCell("A18"), false, C_CALC);
-    fml(ws.getCell("B18"), "=B16*B19", b18, NUM, C_CALC);
-    empty(ws.getCell("C18")); empty(ws.getCell("D18"));
-
-    ws.getCell("A19").value = "% Mínimo a Reportar"; lbl(ws.getCell("A19"), false, C_CALC);
-    ws.getCell("B19").value = b19; inp(ws.getCell("B19"), PCT);
-    empty(ws.getCell("C19")); empty(ws.getCell("D19"));
+    ws.getCell("A17").value = "% Aplicado"; lbl(ws.getCell("A17"), false, C_CALC);
+    ws.getCell("B17").value = b19; inp(ws.getCell("B17"), PCT);
+    empty(ws.getCell("C17"));
 
     // ── TOTALES REPORTADOS ─────────────────────────────────────────────────────
-    ws.mergeCells("A20:D20");
-    ws.getCell("A20").value = "TOTALES REPORTADOS"; hdr(ws.getCell("A20"), CH_DARK, 11);
+    ws.mergeCells("A18:C18");
+    ws.getCell("A18").value = "TOTALES REPORTADOS"; hdr(ws.getCell("A18"), CH_DARK, 11);
 
-    ws.getCell("A21").value = "Sistema Total Ajustado $"; lbl(ws.getCell("A21"), true, C_HILITE);
-    fml(ws.getCell("B21"), "=B16", b16, NUM, C_CALC);
-    const c23cell = ws.getCell("C21");
-    c23cell.value  = { formula:"=C9+C10+C11+C12+C13+C14", result: c23 };
-    c23cell.font   = { name:"Arial", bold:true, color:{ argb:"FF000000" } };
-    c23cell.numFmt = NUM; c23cell.border = Border;
-    c23cell.alignment = { horizontal:"right" };
-    c23cell.fill  = { type:"pattern", pattern:"solid", fgColor:{ argb:C_HILITE } };
-    empty(ws.getCell("D21"));
-
-    const pctVerif = b16 > 0 ? c23 / b16 : 0;
-    ws.getCell("A22").value = "% del Total Real (verificación)"; lbl(ws.getCell("A22"), false, C_CALC);
-    empty(ws.getCell("B22"));
-    fml(ws.getCell("C22"), "=IF(B16=0,0,C21/B16)", pctVerif, PCT, C_CALC);
-    empty(ws.getCell("D22"));
+    ws.getCell("A19").value = "Total Reportado $"; lbl(ws.getCell("A19"), true, C_HILITE);
+    const totCell = ws.getCell("B19");
+    totCell.value  = { formula:"=B16", result: c23 };
+    totCell.font   = { name:"Arial", bold:true, color:{ argb:"FF000000" } };
+    totCell.numFmt = NUM; totCell.border = Border;
+    totCell.alignment = { horizontal:"right" };
+    totCell.fill  = { type:"pattern", pattern:"solid", fgColor:{ argb:C_HILITE } };
+    empty(ws.getCell("C19"));
 
     // ── DIFERENCIAS ────────────────────────────────────────────────────────────
-    ws.mergeCells("A23:D23");
-    ws.getCell("A23").value = "DIFERENCIAS"; hdr(ws.getCell("A23"), CH_GREEN, 10);
+    ws.mergeCells("A20:C20");
+    ws.getCell("A20").value = "DIFERENCIAS"; hdr(ws.getCell("A20"), CH_GREEN, 10);
 
-    ws.getCell("A24").value = "Sobrante / Faltante"; lbl(ws.getCell("A24"));
-    ws.getCell("B24").value = b27; inp(ws.getCell("B24"));
-    fml(ws.getCell("C24"), "=B24", b27, NUM);
-    const sobCell = ws.getCell("C24");
-    sobCell.font = { name:"Arial", bold:true, color:{ argb: b27 >= 0 ? "FF008000" : "FFCC0000" } };
-    empty(ws.getCell("D24"));
+    const sobPct = b16 > 0 ? b27 / b16 : 0;
+    ws.getCell("A21").value = "Sobrante / Faltante"; lbl(ws.getCell("A21"));
+    const sobBCell = ws.getCell("B21");
+    sobBCell.value  = b27; sobBCell.numFmt = NUM; sobBCell.border = Border;
+    sobBCell.alignment = { horizontal:"right" };
+    sobBCell.font = { name:"Arial", bold:true, color:{ argb: b27 >= 0 ? "FF008000" : "FFCC0000" } };
+    const sobCCell = ws.getCell("C21");
+    sobCCell.value  = sobPct; sobCCell.numFmt = "0.000%"; sobCCell.border = Border;
+    sobCCell.alignment = { horizontal:"right" };
+    sobCCell.font = { name:"Arial", color:{ argb: b27 >= 0 ? "FF008000" : "FFCC0000" } };
 
     // Freeze rows 1-3
     ws.views = [{ state:"frozen", xSplit:0, ySplit:3 }];
@@ -380,7 +363,7 @@ export async function POST(req: NextRequest) {
   genRow(6,  "Ingreso Equiv $",    diaData.map(d => d.b6));
   genRow(7,  "Ingreso $ Directo",  diaData.map(d => d.b7));
 
-  secRow(8, "MEDIOS DE PAGO — VALOR REAL ($)", CH_MID);
+  secRow(8, "MEDIOS DE PAGO", CH_MID);
   genRow(9,  "Efectivo Tienda",    diaData.map(d => d.b9));
   genRow(10, "Efectivo Delivery",  diaData.map(d => d.b10));
   genRow(11, "Punto de Venta",     diaData.map(d => d.b11));
@@ -389,7 +372,7 @@ export async function POST(req: NextRequest) {
   genRow(14, "Depósito Banco",     diaData.map(d => d.b14));
   genRow(15, "Sistema Total Real $", diaData.map(d => d.b16), true, C_CALC);
 
-  secRow(16, `MEDIOS DE PAGO — VALOR AJUSTADO (${pct*100}%)`, CH_MID);
+  secRow(16, `MEDIOS DE PAGO REPORTADO (${pct*100}%)`, CH_MID);
   genRow(17, "Efectivo Tienda (Aj.)",   diaData.map(d => d.c9));
   genRow(18, "Efectivo Delivery (Aj.)", diaData.map(d => d.c10));
   genRow(19, "Punto de Venta (cajas)",   diaData.map(d => d.c11));
