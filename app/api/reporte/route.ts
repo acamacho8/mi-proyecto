@@ -33,7 +33,6 @@ const C_LABEL  = "FFEAEAEA";
 
 // ── Number formats ─────────────────────────────────────────────────────────────
 const NUM = '#,##0.00;(#,##0.00);"-"';
-const PCT = '0.0%;(0.0%);"-"';
 
 // ── Style helpers ──────────────────────────────────────────────────────────────
 const TBorder = { style: "thin" as const, color: { argb: "FFBFBFBF" } };
@@ -69,7 +68,6 @@ function lbl(cell: ExcelJS.Cell, bold = false, bg = "FFFFFFFF") {
   cell.alignment = { horizontal:"left", vertical:"middle" };
 }
 
-function empty(cell: ExcelJS.Cell) { cell.border = Border; }
 
 function fml(cell: ExcelJS.Cell, formula: string, result: number, fmt = NUM, bg?: string) {
   cell.value  = { formula, result };
@@ -212,33 +210,29 @@ export async function POST(req: NextRequest) {
     fml(ws.getCell("B14"), "=B7+B8+B9+B10+B11+B12", c23, NUM, C_CALC);
     setBs(ws.getCell("C14"), c23, C_CALC);
 
-    ws.getCell("A15").value = "% Aplicado"; lbl(ws.getCell("A15"), false, C_CALC);
-    ws.getCell("B15").value = pct; inp(ws.getCell("B15"), PCT);
-    empty(ws.getCell("C15"));
-
     // ── TOTALES REPORTADOS ─────────────────────────────────────────────────────
-    ws.mergeCells("A16:C16");
-    ws.getCell("A16").value = "TOTALES REPORTADOS"; hdr(ws.getCell("A16"), CH_DARK, 11);
+    ws.mergeCells("A15:C15");
+    ws.getCell("A15").value = "TOTALES REPORTADOS"; hdr(ws.getCell("A15"), CH_DARK, 11);
 
-    ws.getCell("A17").value = "Total Reportado $"; lbl(ws.getCell("A17"), true, C_HILITE);
-    const totCell = ws.getCell("B17");
+    ws.getCell("A16").value = "Total Reportado $"; lbl(ws.getCell("A16"), true, C_HILITE);
+    const totCell = ws.getCell("B16");
     totCell.value  = { formula:"=B14", result: c23 };
     totCell.font   = { name:"Arial", bold:true, color:{ argb:"FF000000" } };
     totCell.numFmt = NUM; totCell.border = Border;
     totCell.alignment = { horizontal:"right" };
     totCell.fill  = { type:"pattern", pattern:"solid", fgColor:{ argb:C_HILITE } };
-    setBs(ws.getCell("C17"), c23, C_HILITE);
+    setBs(ws.getCell("C16"), c23, C_HILITE);
 
     // ── DIFERENCIAS ────────────────────────────────────────────────────────────
-    ws.mergeCells("A18:C18");
-    ws.getCell("A18").value = "DIFERENCIAS"; hdr(ws.getCell("A18"), CH_GREEN, 10);
+    ws.mergeCells("A17:C17");
+    ws.getCell("A17").value = "DIFERENCIAS"; hdr(ws.getCell("A17"), CH_GREEN, 10);
 
-    ws.getCell("A19").value = "Sobrante / Faltante"; lbl(ws.getCell("A19"));
-    const sobBCell = ws.getCell("B19");
+    ws.getCell("A18").value = "Sobrante / Faltante"; lbl(ws.getCell("A18"));
+    const sobBCell = ws.getCell("B18");
     sobBCell.value  = b27; sobBCell.numFmt = NUM; sobBCell.border = Border;
     sobBCell.alignment = { horizontal:"right" };
     sobBCell.font = { name:"Arial", bold:true, color:{ argb: b27 >= 0 ? "FF008000" : "FFCC0000" } };
-    const sobCCell = ws.getCell("C19");
+    const sobCCell = ws.getCell("C18");
     sobCCell.value  = b27 * t; sobCCell.numFmt = BSF; sobCCell.border = Border;
     sobCCell.alignment = { horizontal:"right" };
     sobCCell.font = { name:"Arial", color:{ argb: b27 >= 0 ? "FF008000" : "FFCC0000" } };
@@ -319,7 +313,7 @@ export async function POST(req: NextRequest) {
 
   // Sections
   secRow(4,  "SISTEMA", CH_GREEN);
-  genRow(5,  `Sistema $ (${pct*100}%)`, diaData.map(d => d.sistemaUsd), true, C_CALC);
+  genRow(5,  "Sistema $", diaData.map(d => d.sistemaUsd), true, C_CALC);
 
   secRow(6,  "MEDIOS DE PAGO REPORTADO", CH_MID);
   genRow(7,  "Efectivo Tienda",    diaData.map(d => d.c9));
@@ -332,28 +326,6 @@ export async function POST(req: NextRequest) {
 
   secRow(14, "DIFERENCIAS", CH_GREEN);
   genRow(15, "Sobrante / Faltante", diaData.map(d => d.b27));
-
-  // Verification row
-  lbl(wg.getCell(16, 1), false, C_CALC);
-  wg.getCell(16, 1).value = "% Ajuste vs Real (verificación)";
-  for (let ci = 0; ci < 7; ci++) {
-    const real = diaData[ci]?.b16 ?? 0;
-    const adj  = diaData[ci]?.c23 ?? 0;
-    const c    = wg.getCell(16, ci + 2);
-    c.value    = real > 0 ? adj / real : 0;
-    c.numFmt   = PCT; c.border = Border;
-    c.alignment = { horizontal:"right" };
-    c.font      = { name:"Arial", color:{ argb:"FF000000" } };
-    c.fill      = { type:"pattern", pattern:"solid", fgColor:{ argb:C_CALC } };
-  }
-  const totReal = diaData.reduce((s,d) => s + d.b16, 0);
-  const totAdj  = diaData.reduce((s,d) => s + d.c23, 0);
-  const totVerif = wg.getCell(16, 9);
-  totVerif.value  = totReal > 0 ? totAdj / totReal : 0;
-  totVerif.numFmt = PCT; totVerif.border = Border;
-  totVerif.alignment = { horizontal:"right" };
-  totVerif.font   = { name:"Arial", bold:true };
-  totVerif.fill   = { type:"pattern", pattern:"solid", fgColor:{ argb:C_HILITE } };
 
   wg.views = [{ state:"frozen", xSplit:1, ySplit:3 }];
 
