@@ -138,29 +138,54 @@ export async function POST(req: NextRequest) {
     const c13 = b13 * pct;
     const c14 = b14 * pct;
 
-    // POS: seleccionar cajas enteras (desc) hasta alcanzar el objetivo
+    // POS: seleccionar combinación óptima de cajas enteras más cercana al objetivo
     type CounterItem = { nombre: string; tasa: number; puntoSis: number; movilSis: number; vesSisTienda: number; usdSisTienda: number; vesSisDelivery: number; usdSisDelivery: number; zelleSis: number };
     const countersArr: CounterItem[] = Array.isArray(d.counters) ? d.counters : [];
     const posCountersUsd = countersArr
       .map((c, idx) => ({ idx, usd: c.puntoSis / (c.tasa > 0 ? c.tasa : t) }))
-      .filter(c => c.usd > 0)
-      .sort((a, b) => b.usd - a.usd);
-    // Tomar cajas enteras sin superar el objetivo (piso, no techo)
+      .filter(c => c.usd > 0);
     const posTarget = b11 * pct;
     const posSelectedIdxs = new Set<number>();
     let posAccum = 0;
-    for (const pc of posCountersUsd) {
-      if (posAccum + pc.usd <= posTarget + 0.005) { // +0.005 tolerancia de redondeo
-        posAccum += pc.usd;
-        posSelectedIdxs.add(pc.idx);
+
+    if (posCountersUsd.length > 0) {
+      const N = posCountersUsd.length;
+      let bestSum  = 0;
+      let bestDiff = Infinity;
+      let bestMask = 0;
+      // Probar todas las combinaciones (2^N) para minimizar |suma - objetivo|
+      const limit = N <= 20 ? (1 << N) : 0;
+      for (let mask = 1; mask < limit; mask++) {
+        let s = 0;
+        for (let j = 0; j < N; j++) {
+          if (mask & (1 << j)) s += posCountersUsd[j].usd;
+        }
+        const diff = Math.abs(s - posTarget);
+        // Preferir la combinación más cercana; si empatan, la que no supere el objetivo
+        if (diff < bestDiff || (diff === bestDiff && s < posTarget && bestSum >= posTarget)) {
+          bestDiff = diff; bestSum = s; bestMask = mask;
+        }
       }
-      // si no cabe, se omite esa caja y se intenta con la siguiente (más pequeña)
-    }
-    // Si ninguna caja cabe (todas superan el objetivo solas), tomar la más pequeña
-    if (posSelectedIdxs.size === 0 && posCountersUsd.length > 0) {
-      const smallest = posCountersUsd[posCountersUsd.length - 1];
-      posAccum = smallest.usd;
-      posSelectedIdxs.add(smallest.idx);
+      if (limit > 0 && bestMask > 0) {
+        for (let j = 0; j < N; j++) {
+          if (bestMask & (1 << j)) {
+            posAccum += posCountersUsd[j].usd;
+            posSelectedIdxs.add(posCountersUsd[j].idx);
+          }
+        }
+      } else {
+        // Fallback greedy para N > 20 (poco probable)
+        const sorted = [...posCountersUsd].sort((a, b) => b.usd - a.usd);
+        for (const pc of sorted) {
+          if (posAccum + pc.usd <= posTarget + 0.005) {
+            posAccum += pc.usd; posSelectedIdxs.add(pc.idx);
+          }
+        }
+        if (posSelectedIdxs.size === 0) {
+          const sm = sorted[sorted.length - 1];
+          posAccum = sm.usd; posSelectedIdxs.add(sm.idx);
+        }
+      }
     }
     const c11 = posCountersUsd.length > 0 ? posAccum : b11 * pct;
     const c23 = c9 + c10 + c11 + c12 + c13 + c14;
