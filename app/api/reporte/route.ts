@@ -125,17 +125,24 @@ export async function POST(req: NextRequest) {
 
     const b16 = b9 + b10 + b11 + b12 + b13 + b14;
 
-    // C column — pct aplicado uniformemente a todos los métodos
-    const c9  = b9  * pct;
-    const c10 = b10 * pct;
-    const c11 = b11 * pct;
-    const c12 = b12 * pct;
-    const c13 = b13 * pct;
-    const c14 = b14 * pct;
-    const c23 = c9 + c10 + c11 + c12 + c13 + c14; // = b16 * pct
+    // Tolerancia 0.025%-0.030% entre Sistema y suma de métodos
+    // Días pares → sobrante (+), impares → faltante (-)
+    const TOLS = 0.00025, TOLD = 0.00005; // rango base + spread por día
+    const tolSign = (i % 2 === 0) ? 1 : -1;
+    const tol     = (TOLS + (i % 3) * (TOLD / 2)) * tolSign; // varía entre días
+
+    // C column — pct × (1 ∓ tol) para producir la diferencia deseada
+    const cPct = pct * (1 - tol);
+    const c9  = b9  * cPct;
+    const c10 = b10 * cPct;
+    const c11 = b11 * cPct;
+    const c12 = b12 * cPct;
+    const c13 = b13 * cPct;
+    const c14 = b14 * cPct;
+    const c23 = c9 + c10 + c11 + c12 + c13 + c14;
 
     const sistemaUsd = b16 * pct;
-    const b27 = sistemaUsd - c23; // sobrante ≈ 0 (float rounding)
+    const b27 = sistemaUsd - c23; // ≈ ±0.025-0.030% de sistemaUsd
 
     diaData.push({ name:diaName, fecha, sistemaUsd, b16, c9, c10, c11, c12, c13, c14, c23, b27 });
 
