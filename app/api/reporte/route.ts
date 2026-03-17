@@ -146,13 +146,22 @@ export async function POST(req: NextRequest) {
       .map((c, idx) => ({ idx, usd: c.puntoSis / (c.tasa > 0 ? c.tasa : t) }))
       .filter(c => c.usd > 0)
       .sort((a, b) => b.usd - a.usd);
+    // Tomar cajas enteras sin superar el objetivo (piso, no techo)
     const posTarget = b11 * pct;
     const posSelectedIdxs = new Set<number>();
     let posAccum = 0;
     for (const pc of posCountersUsd) {
-      if (posAccum >= posTarget) break;
-      posAccum += pc.usd;
-      posSelectedIdxs.add(pc.idx);
+      if (posAccum + pc.usd <= posTarget + 0.005) { // +0.005 tolerancia de redondeo
+        posAccum += pc.usd;
+        posSelectedIdxs.add(pc.idx);
+      }
+      // si no cabe, se omite esa caja y se intenta con la siguiente (más pequeña)
+    }
+    // Si ninguna caja cabe (todas superan el objetivo solas), tomar la más pequeña
+    if (posSelectedIdxs.size === 0 && posCountersUsd.length > 0) {
+      const smallest = posCountersUsd[posCountersUsd.length - 1];
+      posAccum = smallest.usd;
+      posSelectedIdxs.add(smallest.idx);
     }
     const c11 = posCountersUsd.length > 0 ? posAccum : b11 * pct;
     const c23 = c9 + c10 + c11 + c12 + c13 + c14;
@@ -383,7 +392,7 @@ export async function POST(req: NextRequest) {
   secRow(16, `MEDIOS DE PAGO — VALOR AJUSTADO (${pct*100}%)`, CH_MID);
   genRow(17, "Efectivo Tienda (Aj.)",   diaData.map(d => d.c9));
   genRow(18, "Efectivo Delivery (Aj.)", diaData.map(d => d.c10));
-  genRow(19, "Punto de Venta (100%)",   diaData.map(d => d.c11));
+  genRow(19, "Punto de Venta (cajas)",   diaData.map(d => d.c11));
   genRow(20, "Pago Móvil (Aj.)",        diaData.map(d => d.c12));
   genRow(21, "Zelle (Aj.)",             diaData.map(d => d.c13));
   genRow(22, "Depósito Banco (Aj.)",    diaData.map(d => d.c14));
