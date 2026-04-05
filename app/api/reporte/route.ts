@@ -97,52 +97,60 @@ export async function POST(req: NextRequest) {
   const wb       = new ExcelJS.Workbook();
   const diaData: DiaData[] = [];
 
+  // ── Pre-cálculo: valores brutos en $ para los 7 días ────────────────────────
+  // Necesario para detectar días overflow antes de generar las hojas
+  interface RawDay {
+    b9: number; b10: number; b11: number; b12: number; b13: number; b14: number;
+    b16: number; tasa: number;
+  }
+  const rawDays: RawDay[] = diasSemana.map((_, i) => {
+    const d = dias[i] || {};
+    const t = num(d.tasa) > 0 ? num(d.tasa) : 1;
+    const b9  = num(d["Efectivo Tienda_Bs"])   / t + num(d["Efectivo Tienda_$"]);
+    const b10 = num(d["Efectivo Delivery_Bs"]) / t + num(d["Efectivo Delivery_$"]);
+    const b11 = num(d["Punto de Venta_Bs"])    / t;
+    const b12 = num(d["Pago Móvil_Bs"])        / t;
+    const b13 = num(d["Zelle_$"]);
+    const b14 = num(d["Depósito Banco_Bs"])    / t;
+    return { b9, b10, b11, b12, b13, b14, b16: b9+b10+b11+b12+b13+b14, tasa: num(d.tasa) };
+  });
+
+  // Día "overflow": el POS por sí solo ya cubre el pct% de las ventas del día
+  const isOverflow = rawDays.map(r => r.b16 > 0 && r.b11 / r.b16 >= pct);
+
+  // Factor de escala global para los métodos que NO son POS en días normales
+  // Objetivo: suma de los 7 días = pct × ventas semanales totales
+  const weeklyTarget  = pct * rawDays.reduce((s, r) => s + r.b16, 0);
+  const overflowSum   = rawDays.reduce((s, r, i) => s + (isOverflow[i] ? r.b16 : 0), 0);
+  const normalPosSum  = rawDays.reduce((s, r, i) => s + (!isOverflow[i] ? r.b11   : 0), 0);
+  const normalNonPos  = rawDays.reduce((s, r, i) => s + (!isOverflow[i] ? r.b16 - r.b11 : 0), 0);
+  const remaining     = weeklyTarget - overflowSum;
+  const nonPosScale   = normalNonPos > 0
+    ? Math.max(0, Math.min(1, (remaining - normalPosSum) / normalNonPos))
+    : 0;
+
   // ── Day sheets ───────────────────────────────────────────────────────────────
   diasSemana.forEach((diaName, i) => {
     const d    = dias[i] || {};
-    const tasa = num(d.tasa);
     const fecha = addDays(semana, i);
-
-    // Raw values from form/CRM (all converted to $)
-    const efTBs  = num(d["Efectivo Tienda_Bs"]);
-    const efTDir = num(d["Efectivo Tienda_$"]);
-    const efDBs  = num(d["Efectivo Delivery_Bs"]);
-    const efDDir = num(d["Efectivo Delivery_$"]);
-    const posBs  = num(d["Punto de Venta_Bs"]);
-    const pmBs   = num(d["Pago Móvil_Bs"]);
-    const zelleD = num(d["Zelle_$"]);
-    const depBs  = num(d["Depósito Banco_Bs"]);
-
+    const { b9, b10, b11, b12, b13, b14, b16, tasa } = rawDays[i];
     const t = tasa > 0 ? tasa : 1;
+    const overflow = isOverflow[i];
 
-    // B column (REAL $)
-    const b9  = efTBs / t + efTDir;
-    const b10 = efDBs / t + efDDir;
-    const b11 = posBs / t;
-    const b12 = pmBs  / t;
-    const b13 = zelleD;
-    const b14 = depBs / t;
-
-    const b16 = b9 + b10 + b11 + b12 + b13 + b14;
-
-    // Tolerancia 0.025%-0.030% entre Sistema y suma de métodos
-    // Días pares → sobrante (+), impares → faltante (-)
-    const TOLS = 0.00025, TOLD = 0.00005; // rango base + spread por día
-    const tolSign = (i % 2 === 0) ? 1 : -1;
-    const tol     = (TOLS + (i % 3) * (TOLD / 2)) * tolSign; // varía entre días
-
-    // C column — pct × (1 ∓ tol) para producir la diferencia deseada
-    const cPct = pct * (1 - tol);
-    const c9  = b9  * cPct;
-    const c10 = b10 * cPct;
-    const c11 = b11 * cPct;
-    const c12 = b12 * cPct;
-    const c13 = b13 * cPct;
-    const c14 = b14 * cPct;
+    // C column — Punto de Venta siempre al 100%.
+    // Días overflow (POS ≥ pct% del día): todos los métodos al 100%.
+    // Días normales: POS al 100% + resto escalado para cumplir el objetivo semanal.
+    const scale = overflow ? 1 : nonPosScale;
+    const c9  = overflow ? b9  : b9  * scale;
+    const c10 = overflow ? b10 : b10 * scale;
+    const c11 = b11;        // Punto de Venta siempre al 100%
+    const c12 = overflow ? b12 : b12 * scale;
+    const c13 = overflow ? b13 : b13 * scale;
+    const c14 = overflow ? b14 : b14 * scale;
     const c23 = c9 + c10 + c11 + c12 + c13 + c14;
 
     const sistemaUsd = b16 * pct;
-    const b27 = sistemaUsd - c23; // ≈ ±0.025-0.030% de sistemaUsd
+    const b27 = sistemaUsd - c23;
 
     diaData.push({ name:diaName, fecha, sistemaUsd, b16, c9, c10, c11, c12, c13, c14, c23, b27 });
 
