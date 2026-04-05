@@ -22,10 +22,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "CRM_BASE_URL no configurada" }, { status: 500 });
   }
 
+  const crmHeaders = { "x-api-key": process.env.CRM_API_KEY ?? "04242246317734eqC589309E82307354" };
+
   try {
     const [countersRes, transRes] = await Promise.allSettled([
-      fetch(`${base}/counters-by-day?date=${date}&shopCode=${shopCode}`, { cache: "no-store" }),
-      fetch(`${base}/trans-by-day?date=${date}&shopCode=${shopCode}`, { cache: "no-store" }),
+      fetch(`${base}/counters-by-day?date=${date}&shopCode=${shopCode}`, { cache: "no-store", headers: crmHeaders }),
+      fetch(`${base}/trans-by-day?date=${date}&shopCode=${shopCode}`, { cache: "no-store", headers: crmHeaders }),
     ]);
 
     // Parsear respuestas de forma independiente (fallo parcial permitido)
