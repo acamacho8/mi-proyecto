@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { useDriveNav, DriveFile } from "@/app/lib/useDriveNav";
 
 const STORES = [
@@ -17,24 +17,6 @@ const BC_FIELDS = [
   { key: "reporteZTotalAmount", label: "Reporte Z Total Amount", hint: "Sin IGTF" },
   { key: "igtfAmount",          label: "IGTF Amount",            hint: "" },
 ];
-
-const CLAUDE_SYSTEM = `Eres un extractor de datos de Reportes Z de máquinas fiscales HKA venezolanas para Full Queso.
-Extrae estos campos y devuelve SOLO JSON válido sin backticks ni texto adicional:
-{
-  "modelo": "modelo de la máquina (ej: HKA-080)",
-  "serialNo": "número serial",
-  "numeroReporte": "número del reporte Z",
-  "firstInvoiceNo": número entero del primer comprobante del día (NO el último del día anterior),
-  "lastInvoiceNo": número entero del último comprobante del día,
-  "reporteZTotalAmount": número: (TOTAL VENTA - IGTF VENTA) + (TOTAL ND - IGTF ND) - (TOTAL NC - IGTF NC),
-  "igtfAmount": número: IGTF VENTA + IGTF ND - IGTF NC,
-  "fecha": "YYYY-MM-DD",
-  "totalGaveta": número del TOTAL GAVETA (para verificación),
-  "confianza": número 0-100,
-  "advertencias": [],
-  "calculo_detalle": { "totalVenta": número, "igtfVenta": número, "totalNotaDebito": número, "igtfNotaDebito": número, "totalNotaCredito": número, "igtfNotaCredito": número }
-}
-REGLAS: firstInvoiceNo = primer ticket del día actual. reporteZTotalAmount NO incluye IGTF. null si no encuentras el campo.`;
 
 const S = {
   page: { fontFamily: "Inter, sans-serif", minHeight: "100vh", backgroundColor: "#f5f5f5" } as React.CSSProperties,
@@ -64,7 +46,6 @@ export default function ReporteZPage() {
 
   const [storeCode, setStoreCode]       = useState("");
   const [storeFolders, setStoreFolders] = useState<DriveFile[]>([]);
-  const [storeFolder, setStoreFolder]   = useState<DriveFile | null>(null);
   const [months, setMonths]             = useState<DriveFile[]>([]);
   const [selMonth, setSelMonth]         = useState<DriveFile | null>(null);
   const [days, setDays]                 = useState<DriveFile[]>([]);
@@ -98,8 +79,7 @@ export default function ReporteZPage() {
       f.name.toLowerCase().includes(code.toLowerCase()) ||
       f.name.toLowerCase().includes(keyword)
     );
-    if (!folder) throw new Error(`No se encontró carpeta para ${code} en Drive. Carpetas disponibles: ${storeFolders.map(f => f.name).join(", ")}`);
-    setStoreFolder(folder);
+    if (!folder) throw new Error(`No se encontró carpeta para ${code}. Disponibles: ${storeFolders.map(f => f.name).join(", ")}`);
     const m = await drive.listMonths(folder.id);
     setMonths(m);
     setDays([]);
@@ -114,7 +94,7 @@ export default function ReporteZPage() {
   const handleDaySelect = (d: DriveFile) => withLoading("Buscando Reporte Z...", async () => {
     setSelDay(d); setFoundFile(null); setFields({}); setRawData(null);
     const file = await drive.findReporteZ(d.id, storeCode);
-    if (!file) throw new Error(`No se encontró Reporte Z en el día ${d.name}. Verifica que el archivo siga el patrón correcto (MF... para FQ01/FQ88, "reporte z" para FQ28).`);
+    if (!file) throw new Error(`No se encontró Reporte Z en el día ${d.name}. Patrón esperado: MF... (FQ01/FQ88) o "reporte z" (FQ28).`);
     setFoundFile(file);
   });
 
@@ -123,31 +103,16 @@ export default function ReporteZPage() {
     const { data, type } = await drive.downloadFile(foundFile.id, foundFile.mimeType);
     const isPDF = type.includes("pdf") || foundFile.name.toLowerCase().endsWith(".pdf");
     const isImage = type.startsWith("image/");
-    const mediaType = isPDF ? "application/pdf" : type;
+    if (!isPDF && !isImage) throw new Error("Formato no soportado: " + type);
 
-    const contentBlock = isPDF
-      ? { type: "document", source: { type: "base64", media_type: "application/pdf", data } }
-      : isImage
-      ? { type: "image", source: { type: "base64", media_type: mediaType, data } }
-      : null;
-
-    if (!contentBlock) throw new Error("Formato no soportado: " + type);
-
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetch("/api/extract-reporte-z", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
-        system: CLAUDE_SYSTEM,
-        messages: [{ role: "user", content: [contentBlock, { type: "text", text: "Extrae los datos de este Reporte Z." }] }],
-      }),
+      body: JSON.stringify({ data, mediaType: isPDF ? "application/pdf" : type }),
     });
 
-    const apiData = await res.json();
-    if (apiData.error) throw new Error(apiData.error.message);
-    const text = apiData.content?.find((b: any) => b.type === "text")?.text || "";
-    const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+    const parsed = await res.json();
+    if (parsed.error) throw new Error(parsed.error);
     setRawData(parsed);
     const extracted: Record<string, string> = {};
     BC_FIELDS.forEach(f => { if (parsed[f.key] != null) extracted[f.key] = String(parsed[f.key]); });
@@ -180,20 +145,16 @@ export default function ReporteZPage() {
         {error && <div style={S.alert("err")}>{error}</div>}
         {loading && <div style={S.alert("info")}>{loading}</div>}
 
-        {/* PASO 1: Conectar Drive */}
         {!storeFolders.length && (
           <div style={S.card}>
             <p style={{ color: "#555", marginBottom: "20px", fontSize: "14px", lineHeight: 1.6 }}>
-              Conecta tu cuenta de Google para acceder a los Reportes Z almacenados en Drive
+              Conecta tu cuenta de Google para acceder a los Reportes Z en Drive
               y pre-llenar el Custom Information de los Sales Orders en BC.
             </p>
-            <button style={S.btnPrimary} onClick={handleConnect}>
-              Conectar Google Drive
-            </button>
+            <button style={S.btnPrimary} onClick={handleConnect}>Conectar Google Drive</button>
           </div>
         )}
 
-        {/* PASO 2: Selección tienda → mes → día */}
         {storeFolders.length > 0 && (
           <div style={S.card}>
             <h2 style={{ color: "#C0392B", fontSize: "18px", marginBottom: "20px", fontWeight: "700" }}>
@@ -204,9 +165,7 @@ export default function ReporteZPage() {
               <label style={S.label}>Tienda</label>
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                 {STORES.map(s => (
-                  <button key={s.code} style={S.pill(storeCode === s.code)} onClick={() => handleStoreSelect(s.code)}>
-                    {s.label}
-                  </button>
+                  <button key={s.code} style={S.pill(storeCode === s.code)} onClick={() => handleStoreSelect(s.code)}>{s.label}</button>
                 ))}
               </div>
             </div>
@@ -216,9 +175,7 @@ export default function ReporteZPage() {
                 <label style={S.label}>Mes</label>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                   {months.map(m => (
-                    <button key={m.id} style={S.tag(selMonth?.id === m.id)} onClick={() => handleMonthSelect(m)}>
-                      {m.name}
-                    </button>
+                    <button key={m.id} style={S.tag(selMonth?.id === m.id)} onClick={() => handleMonthSelect(m)}>{m.name}</button>
                   ))}
                 </div>
               </div>
@@ -229,9 +186,7 @@ export default function ReporteZPage() {
                 <label style={S.label}>Día</label>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                   {days.map(d => (
-                    <button key={d.id} style={S.tag(selDay?.id === d.id)} onClick={() => handleDaySelect(d)}>
-                      {d.name}
-                    </button>
+                    <button key={d.id} style={S.tag(selDay?.id === d.id)} onClick={() => handleDaySelect(d)}>{d.name}</button>
                   ))}
                 </div>
               </div>
@@ -243,15 +198,12 @@ export default function ReporteZPage() {
                   <p style={{ margin: 0, fontWeight: "700", fontSize: "14px", color: "#1a7a3c" }}>Reporte Z encontrado</p>
                   <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#555" }}>{foundFile.name}</p>
                 </div>
-                <button style={S.btnPrimary} onClick={handleExtract}>
-                  Extraer datos →
-                </button>
+                <button style={S.btnPrimary} onClick={handleExtract}>Extraer datos →</button>
               </div>
             )}
           </div>
         )}
 
-        {/* RESULTADO */}
         {hasResult && (
           <div style={S.card}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
@@ -269,9 +221,7 @@ export default function ReporteZPage() {
             </div>
 
             {rawData?.advertencias?.length > 0 && (
-              <div style={S.alert("warn")}>
-                <strong>Verificar: </strong>{rawData.advertencias.join(" · ")}
-              </div>
+              <div style={S.alert("warn")}><strong>Verificar: </strong>{rawData.advertencias.join(" · ")}</div>
             )}
 
             <div style={{ border: "1px solid #f0f0f0", borderRadius: "8px", overflow: "hidden" }}>
@@ -284,7 +234,6 @@ export default function ReporteZPage() {
                   <input style={{ ...S.input, border: "1.5px solid #F1C40F" }} value={numeroCaja} onChange={e => setNumeroCaja(e.target.value)} placeholder="01" />
                 </div>
               </div>
-
               {BC_FIELDS.map((f, i) => (
                 <div key={f.key} style={{ ...S.row, borderBottom: i < BC_FIELDS.length - 1 ? "1px solid #f5f5f5" : "none" }}>
                   <div style={S.rowLabel}>
@@ -292,12 +241,7 @@ export default function ReporteZPage() {
                     {f.hint && <p style={{ margin: "2px 0 0", fontSize: "11px", color: "#aaa" }}>{f.hint}</p>}
                   </div>
                   <div style={S.rowInput}>
-                    <input
-                      style={{ ...S.input, backgroundColor: fields[f.key] ? "white" : "#fafafa" }}
-                      value={fields[f.key] ?? ""}
-                      onChange={e => setFields(prev => ({ ...prev, [f.key]: e.target.value }))}
-                      placeholder="—"
-                    />
+                    <input style={{ ...S.input, backgroundColor: fields[f.key] ? "white" : "#fafafa" }} value={fields[f.key] ?? ""} onChange={e => setFields(prev => ({ ...prev, [f.key]: e.target.value }))} placeholder="—" />
                   </div>
                 </div>
               ))}
