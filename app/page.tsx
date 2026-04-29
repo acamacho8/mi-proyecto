@@ -42,6 +42,14 @@ export default function Home() {
         }}>
           Generar Reporte →
         </Link>
+        <Link href="/reporte-z" style={{
+          display: "block", padding: "14px", marginTop: "12px",
+          backgroundColor: "#F1C40F", color: "#C0392B",
+          borderRadius: "8px", fontSize: "16px",
+          fontWeight: "700", textDecoration: "none"
+        }}>
+          Reporte Z → BC →
+        </Link>
       </div>
     </main>
   );
