@@ -1,8 +1,6 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useDriveNav, DriveFile } from "@/app/lib/useDriveNav";
-
-declare global { interface Window { Tesseract: any; } }
 
 const STORES = [
   { code: "FQ01", label: "FQ01 · Chacao" },
@@ -105,7 +103,6 @@ const S = {
 
 export default function ReporteZPage() {
   const drive = useDriveNav();
-  const [tesseractReady, setTesseractReady] = useState(false);
   const [storeCode, setStoreCode]       = useState("");
   const [storeFolders, setStoreFolders] = useState<DriveFile[]>([]);
   const [months, setMonths]             = useState<DriveFile[]>([]);
@@ -117,18 +114,8 @@ export default function ReporteZPage() {
   const [fields, setFields]             = useState<Record<string, string>>({});
   const [rawData, setRawData]           = useState<any>(null);
   const [loading, setLoading]           = useState("");
-  const [ocrProgress, setOcrProgress]   = useState(0);
   const [error, setError]               = useState("");
   const [copied, setCopied]             = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const script = document.createElement("script");
-    // Usar versión 4 — API más estable desde CDN
-    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js";
-    script.onload = () => setTesseractReady(true);
-    document.head.appendChild(script);
-  }, []);
 
   const withLoading = async (msg: string, fn: () => Promise<void>) => {
     setLoading(msg); setError("");
@@ -170,29 +157,11 @@ export default function ReporteZPage() {
   });
 
   const handleExtract = async () => {
-    if (!foundFile || !tesseractReady) return;
-    setLoading("Descargando imagen...");
-    setError(""); setOcrProgress(0);
+    if (!foundFile) return;
+    setError("");
     try {
-      const { data, type } = await drive.downloadFile(foundFile.id, foundFile.mimeType);
-      const imageUrl = `data:${type};base64,${data}`;
-
-      setLoading("Ejecutando OCR (puede tardar ~30s)...");
-
-      // Tesseract.js v4 API desde CDN
-      const worker = await window.Tesseract.createWorker({
-        logger: (m: any) => {
-          if (m.status === "recognizing text") {
-            setOcrProgress(Math.round(m.progress * 100));
-          }
-        }
-      });
-      await worker.loadLanguage("spa");
-      await worker.initialize("spa");
-      const { data: { text } } = await worker.recognize(imageUrl);
-      await worker.terminate();
-
-      if (!text) throw new Error("No se pudo extraer texto de la imagen");
+      const text = await drive.extractTextViaGoogleDoc(foundFile.id, setLoading);
+      if (!text || text.trim().length < 10) throw new Error("El OCR no extrajo texto suficiente. Verifica la calidad de la imagen.");
       const parsed = parseReporteZ(text);
       setRawData(parsed);
       const extracted: Record<string, string> = {};
@@ -202,9 +171,9 @@ export default function ReporteZPage() {
       });
       setFields(extracted);
     } catch (e: any) {
-      setError("Error OCR: " + (e?.message || String(e)));
+      setError(e.message);
     } finally {
-      setLoading(""); setOcrProgress(0);
+      setLoading("");
     }
   };
 
@@ -228,19 +197,7 @@ export default function ReporteZPage() {
       </header>
       <main style={S.main}>
         {error && <div style={S.alert("err")}>{error}</div>}
-        {loading && (
-          <div style={S.alert("info")}>
-            {loading}
-            {ocrProgress > 0 && (
-              <div style={{ marginTop: "8px" }}>
-                <div style={{ background: "#d0f0e0", borderRadius: "4px", height: "6px", overflow: "hidden" }}>
-                  <div style={{ background: "#27AE60", height: "100%", width: `${ocrProgress}%`, transition: "width 0.3s" }} />
-                </div>
-                <span style={{ fontSize: "11px" }}>{ocrProgress}%</span>
-              </div>
-            )}
-          </div>
-        )}
+        {loading && <div style={S.alert("info")}>{loading}</div>}
 
         {!storeFolders.length && (
           <div style={S.card}>
@@ -248,8 +205,7 @@ export default function ReporteZPage() {
               Conecta tu cuenta de Google para acceder a los Reportes Z en Drive y pre-llenar el Custom Information de los Sales Orders en BC.
             </p>
             <p style={{ color: "#aaa", marginBottom: "20px", fontSize: "12px" }}>
-              OCR procesado en el browser — sin costo de API.
-              {!tesseractReady ? " · Cargando motor OCR..." : " · Motor OCR listo ✓"}
+              OCR mediante Google Docs — sin costo de API externa.
             </p>
             <button style={S.btnPrimary} onClick={handleConnect}>Conectar Google Drive</button>
           </div>
@@ -286,9 +242,7 @@ export default function ReporteZPage() {
                   <p style={{ margin: 0, fontWeight: "700", fontSize: "14px", color: "#1a7a3c" }}>Reporte Z encontrado</p>
                   <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#555" }}>{foundFile.name}</p>
                 </div>
-                <button style={{ ...S.btnPrimary, opacity: !tesseractReady ? 0.6 : 1 }} onClick={handleExtract} disabled={!tesseractReady}>
-                  {tesseractReady ? "Extraer datos →" : "Cargando OCR..."}
-                </button>
+                <button style={S.btnPrimary} onClick={handleExtract}>Extraer datos →</button>
               </div>
             )}
           </div>

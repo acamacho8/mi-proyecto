@@ -4,7 +4,10 @@ import { useRef, useCallback } from "react";
 declare global { interface Window { google: any; } }
 
 const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "283123145928-1l7vbsufcajsaidkk7n1uv9p7ql7ldah.apps.googleusercontent.com";
-const SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+const SCOPE = [
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/drive.file"
+].join(" ");
 const ROOT_FOLDER_ID = "1-a5lK2UKyqRcsMMOz2fIY3J2fvXx2JGv";
 
 export interface DriveFile {
@@ -34,18 +37,6 @@ async function driveList(token: string, parentId: string, onlyFolders = false): 
   return data.files || [];
 }
 
-export async function driveDownloadBase64(token: string, fileId: string, mimeType: string): Promise<{ data: string; type: string }> {
-  const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new Error(`Error descargando archivo: ${res.status}`);
-  const buffer = await res.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  return { data: btoa(binary), type: mimeType };
-}
-
-// Patrones por tienda para detectar el Reporte Z
 export const STORE_PATTERN: Record<string, (name: string) => boolean> = {
   FQ01: (name) => name.toUpperCase().startsWith("MF"),
   FQ88: (name) => name.toUpperCase().startsWith("MF"),
@@ -95,10 +86,62 @@ export function useDriveNav() {
     return files.find(f => pattern(f.name)) ?? null;
   }, [getToken]);
 
-  const downloadFile = useCallback(async (fileId: string, mimeType: string) => {
+  // OCR via Google Doc: copia la imagen como Google Doc (Drive hace OCR automático), 
+  // exporta el texto y elimina el Doc temporal
+  const extractTextViaGoogleDoc = useCallback(async (fileId: string, onStatus?: (msg: string) => void): Promise<string> => {
     const token = await getToken();
-    return driveDownloadBase64(token, fileId, mimeType);
+
+    // Paso 1: Copiar imagen como Google Doc (Drive hace OCR automáticamente)
+    onStatus?.("Convirtiendo imagen a Google Doc (OCR)...");
+    const copyRes = await fetch("https://www.googleapis.com/drive/v3/files/copy", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: `_fq_ocr_temp_${Date.now()}`,
+        mimeType: "application/vnd.google-apps.document",
+        parents: [], // raíz de Mi Drive
+      }),
+    });
+
+    // Drive v3 copy con conversión requiere pasar el fileId en la URL
+    const copyRes2 = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/copy`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: `_fq_ocr_temp_${Date.now()}`,
+        mimeType: "application/vnd.google-apps.document",
+      }),
+    });
+
+    const copyData = await copyRes2.json();
+    if (copyData.error) throw new Error("Error al crear Doc: " + copyData.error.message);
+    const docId = copyData.id;
+
+    try {
+      // Paso 2: Exportar el Doc como texto plano
+      onStatus?.("Extrayendo texto del documento...");
+      const exportRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${docId}/export?mimeType=text/plain`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!exportRes.ok) throw new Error("Error al exportar texto del Doc");
+      const text = await exportRes.text();
+      return text;
+    } finally {
+      // Paso 3: Eliminar el Doc temporal
+      onStatus?.("Limpiando archivos temporales...");
+      await fetch(`https://www.googleapis.com/drive/v3/files/${docId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
   }, [getToken]);
 
-  return { listStoreFolders, listMonths, listDays, findReporteZ, downloadFile };
+  return { listStoreFolders, listMonths, listDays, findReporteZ, extractTextViaGoogleDoc };
 }
