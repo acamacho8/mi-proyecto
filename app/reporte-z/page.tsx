@@ -9,21 +9,35 @@ const STORES = [
 ];
 
 const BC_FIELDS = [
-  { key: "modelo",              label: "Modelo",                 hint: "",                                          warn: false },
-  { key: "serialNo",            label: "Serial No.",             hint: "",                                          warn: false },
-  { key: "numeroReporte",       label: "Numero Reporte",         hint: "⚠️ Verificar contra el ticket físico — OCR puede confundir 2↔7, 1↔4, 0↔6", warn: true  },
-  { key: "firstInvoiceNo",      label: "First Invoice No.",      hint: "Primer número del día",                     warn: false },
-  { key: "lastInvoiceNo",       label: "Last Invoice No.",       hint: "Último número del día",                     warn: false },
-  { key: "reporteZTotalAmount", label: "Reporte Z Total Amount", hint: "Sin IGTF: TOTAL VENTA − IGTF ± ND ± NC",   warn: false },
-  { key: "igtfAmount",          label: "IGTF Amount",            hint: "",                                          warn: false },
+  { key: "modelo",              label: "Modelo",                 hint: "",                                                               warn: false },
+  { key: "serialNo",            label: "Serial No.",             hint: "",                                                               warn: false },
+  { key: "numeroReporte",       label: "Numero Reporte",         hint: "⚠️ Verificar contra el ticket físico — OCR puede confundir 2↔7, 1↔4, 0↔6", warn: true },
+  { key: "firstInvoiceNo",      label: "First Invoice No.",      hint: "Primer número del día",                                          warn: false },
+  { key: "lastInvoiceNo",       label: "Last Invoice No.",       hint: "Último número del día",                                          warn: false },
+  { key: "reporteZTotalAmount", label: "Reporte Z Total Amount", hint: "Sin IGTF: TOTAL VENTA − IGTF ± ND ± NC",                        warn: false },
+  { key: "igtfAmount",          label: "IGTF Amount",            hint: "",                                                               warn: false },
 ];
 
-// Extrae el último número venezolano de una línea
+// Extrae número venezolano de una cadena
+// Soporta: "Bs 756.773,92", "Bs 325.443,78", "Bs 325.443.78" (OCR con punto en vez de coma)
 const extractNum = (s: string): number | null => {
-  const matches = [...s.matchAll(/(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/g)];
-  if (!matches.length) return null;
-  const raw = matches[matches.length - 1][1];
-  return parseFloat(raw.replace(/\./g, "").replace(",", "."));
+  // Primero intentar formato correcto con coma decimal: 325.443,78
+  const withComma = [...s.matchAll(/(\d{1,3}(?:\.\d{3})*,\d{2})/g)];
+  if (withComma.length) {
+    const raw = withComma[withComma.length - 1][1];
+    return parseFloat(raw.replace(/\./g, "").replace(",", "."));
+  }
+  // Si no, intentar formato con punto decimal mal escaneado: 325.443.78
+  // (tres números separados por puntos donde el último grupo tiene 2 dígitos)
+  const withDot = [...s.matchAll(/(\d{1,3}(?:\.\d{3})+\.\d{2})/g)];
+  if (withDot.length) {
+    const raw = withDot[withDot.length - 1][1];
+    // Convertir: quitar todos los puntos excepto convertir el último en coma
+    const parts = raw.split(".");
+    const decimal = parts.pop();
+    return parseFloat(parts.join("") + "." + decimal);
+  }
+  return null;
 };
 
 const parseReporteZ = (text: string) => {
@@ -42,45 +56,67 @@ const parseReporteZ = (text: string) => {
   let firstInvoiceNo: string | null = null;
   let lastInvoiceNo: string | null = null;
   let fecha: string | null = null;
+  let foundReporteZLine = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const upper = line.toUpperCase();
 
-    // NUMERO DE REPORTE Z — "REPORTE Z:   1224"
+    // ── NUMERO DE REPORTE Z ─────────────────────────────────────────
+    // Caso 1: "REPORTE 2:   1536 HORA: 19:05" — número en misma línea
+    // Caso 2: "REPORTE 2:" en una línea, "1536 HORA: 19:05" en la siguiente
     if (!numeroReporte) {
-      const m = line.match(/REPORTE\s*[Z2]\s*[:\s]\s*(\d{3,6})/i);
-      if (m) numeroReporte = m[1];
+      if (upper.match(/REPORTE\s*[Z2]\s*:/)) {
+        foundReporteZLine = true;
+        // Intentar extraer de la misma línea
+        const m = line.match(/REPORTE\s*[Z2]\s*:\s*(\d{3,6})/i);
+        if (m) { numeroReporte = m[1]; foundReporteZLine = false; }
+      } else if (foundReporteZLine) {
+        // La línea siguiente — buscar número de 3-6 dígitos al inicio o antes de HORA:
+        const m = line.match(/^(\d{3,6})\s+HORA:/i) || line.match(/^(\d{3,6})\s*$/);
+        if (m) { numeroReporte = m[1]; foundReporteZLine = false; }
+        else foundReporteZLine = false; // si la siguiente línea no tiene el número, resetear
+      }
     }
 
-    // SERIAL — "77C7021976"
+    // ── SERIAL ──────────────────────────────────────────────────────
+    // FQ88: "77C7021976", FQ01: "Z7C7008053"
     if (!serialNo) {
-      const m = line.match(/\b([0-9]{2}[A-Z][0-9]{7,})\b/);
-      if (m) serialNo = m[1];
+      const m = line.match(/\b([A-Z0-9]{2}[A-Z][0-9]{7,})\b/);
+      if (m && !upper.includes("RIF") && !upper.includes("LOCAL") && !upper.includes("ZONA")) {
+        serialNo = m[1];
+      }
     }
 
-    // MODELO HKA
+    // ── MODELO HKA ──────────────────────────────────────────────────
     if (!modelo) {
       const m = line.match(/(HKA[-\s]?\d+)/i);
       if (m) modelo = m[1].replace(/\s/, "-");
     }
 
-    // FECHA
+    // ── FECHA del reporte ────────────────────────────────────────────
+    // Tomar la primera fecha que aparezca en línea con "FECHA:"
     if (!fecha) {
-      const m = line.match(/FECHA:\s*(\d{2}-\d{2}-\d{4})/i);
+      const m = line.match(/^FECHA:\s*(\d{2}-\d{2}-\d{4})/i);
       if (m) {
         const parts = m[1].split("-");
         fecha = `${parts[2]}-${parts[1]}-${parts[0]}`;
       }
     }
 
-    // TOTAL GAVETA
+    // ── TOTAL GAVETA ─────────────────────────────────────────────────
+    // "TOTAL GAVETA    Bs 325.443,78"
     if (upper.includes("TOTAL GAVETA")) {
       const v = extractNum(line);
       if (v !== null) totalGaveta = v;
+      else if (lines[i + 1]) {
+        const v2 = extractNum(lines[i + 1]);
+        if (v2 !== null) totalGaveta = v2;
+      }
     }
 
-    // TOTAL VENTA
+    // ── TOTAL VENTA ──────────────────────────────────────────────────
+    // "TOTAL VENTA    Bs 325.443,69"  (sin incluir NOTA)
     if (upper.match(/^TOTAL\s+VENTA\b/) && !upper.includes("NOTA")) {
       const v = extractNum(line);
       if (v !== null) totalVenta = v;
@@ -90,45 +126,55 @@ const parseReporteZ = (text: string) => {
       }
     }
 
-    // IGTF VENTA
+    // ── IGTF VENTA ───────────────────────────────────────────────────
+    // "IGTF VENTA (3.00%)    Bs 152,53"
     if (upper.match(/^IGTF\s+VENTA/)) {
       const v = extractNum(line);
       if (v !== null) igtfVenta = v;
+      else if (lines[i + 1]) {
+        const v2 = extractNum(lines[i + 1]);
+        if (v2 !== null) igtfVenta = v2;
+      }
     }
 
-    // TOTAL NOTA DEBITO
+    // ── TOTAL NOTA DEBITO ────────────────────────────────────────────
     if (upper.match(/^TOTAL\s+NOTA\s+DE[B]ITO\b/)) {
       const v = extractNum(line);
       if (v !== null) totalNotaDebito = v;
+      else if (lines[i + 1]) { const v2 = extractNum(lines[i + 1]); if (v2 !== null) totalNotaDebito = v2; }
     }
     if (upper.match(/^IGTF\s+NOTA\s+DE[B]ITO/)) {
       const v = extractNum(line);
       if (v !== null) igtfNotaDebito = v;
     }
 
-    // TOTAL NOTA CREDITO
+    // ── TOTAL NOTA CREDITO ───────────────────────────────────────────
     if (upper.match(/^TOTAL\s+NOTA\s+CR[EÉ]DITO\b/)) {
       const v = extractNum(line);
       if (v !== null) totalNotaCredito = v;
+      else if (lines[i + 1]) { const v2 = extractNum(lines[i + 1]); if (v2 !== null) totalNotaCredito = v2; }
     }
     if (upper.match(/^IGTF\s+NOTA\s+CR[EÉ]DITO/)) {
       const v = extractNum(line);
       if (v !== null) igtfNotaCredito = v;
     }
 
-    // ULTIMA FACTURA (Last Invoice) — "ULTIMA FACTURA    00083776"
+    // ── ULTIMA FACTURA ───────────────────────────────────────────────
+    // "ULTIMA FACTURA FECHA: 06-01-2026  00106981  HORA: 16:32"
+    // El número de 8 dígitos es la última factura
     if (upper.includes("ULTIMA FACTURA") || upper.includes("ULT.FACTURA")) {
-      const m = line.match(/\b(\d{7,8})\b/);
-      if (m) lastInvoiceNo = m[1];
+      const nums = [...line.matchAll(/\b(\d{7,8})\b/g)];
+      if (nums.length) lastInvoiceNo = nums[0][1]; // primer número grande = factura
     }
 
-    // PRIMERA FACTURA (First Invoice)
+    // ── PRIMERA FACTURA ──────────────────────────────────────────────
     if (!firstInvoiceNo && (upper.includes("PRIMERA FACTURA") || upper.includes("PRIMER COMP") || upper.includes("DESDE"))) {
       const m = line.match(/\b(\d{7,8})\b/);
       if (m) firstInvoiceNo = m[1];
     }
   }
 
+  // Cálculos finales
   const tv = totalVenta ?? 0, iv = igtfVenta ?? 0;
   const tnd = totalNotaDebito ?? 0, ind = igtfNotaDebito ?? 0;
   const tnc = totalNotaCredito ?? 0, inc = igtfNotaCredito ?? 0;
@@ -360,10 +406,9 @@ export default function ReporteZPage() {
               </div>
             </div>
 
-            {/* Advertencia fija para el número de reporte */}
             <div style={{ ...S.alert("warn"), marginBottom: "12px" }}>
               <strong>⚠️ Verificar siempre el Numero Reporte</strong> contra el ticket físico antes de guardar en BC.
-              El OCR puede confundir dígitos similares (2↔7, 1↔4, 0↔6) en tickets térmicos.
+              El OCR puede confundir dígitos similares en tickets térmicos (2↔7, 1↔4, 0↔6).
             </div>
 
             {rawData?.advertencias?.length > 0 && (
@@ -373,7 +418,6 @@ export default function ReporteZPage() {
             )}
 
             <div style={{ border: "1px solid #f0f0f0", borderRadius: "8px", overflow: "hidden" }}>
-              {/* Numero de Caja — siempre manual */}
               <div style={S.row}>
                 <div style={S.rowLabel}>
                   <p style={{ margin: 0, fontSize: "13px", fontWeight: "600", color: "#333" }}>Numero de Caja</p>
@@ -383,7 +427,6 @@ export default function ReporteZPage() {
                   <input style={{ ...S.input, border: "1.5px solid #F1C40F" }} value={numeroCaja} onChange={e => setNumeroCaja(e.target.value)} placeholder="01" />
                 </div>
               </div>
-
               {BC_FIELDS.map((f, i) => (
                 <div key={f.key} style={{ ...S.row, borderBottom: i < BC_FIELDS.length - 1 ? "1px solid #f5f5f5" : "none" }}>
                   <div style={f.warn ? S.rowLabelWarn : S.rowLabel}>
