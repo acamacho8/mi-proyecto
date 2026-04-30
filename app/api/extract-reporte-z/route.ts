@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const CLAUDE_SYSTEM = `Eres un extractor de datos de Reportes Z de máquinas fiscales HKA venezolanas para Full Queso.
+const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+
+const PROMPT = `Eres un extractor de datos de Reportes Z de máquinas fiscales HKA venezolanas para Full Queso.
 Extrae estos campos y devuelve SOLO JSON válido sin backticks ni texto adicional:
 {
   "modelo": "modelo de la máquina (ej: HKA-080)",
@@ -16,41 +18,32 @@ Extrae estos campos y devuelve SOLO JSON válido sin backticks ni texto adiciona
   "advertencias": [],
   "calculo_detalle": { "totalVenta": número, "igtfVenta": número, "totalNotaDebito": número, "igtfNotaDebito": número, "totalNotaCredito": número, "igtfNotaCredito": número }
 }
-REGLAS: firstInvoiceNo = primer ticket del día actual. reporteZTotalAmount NO incluye IGTF. null si no encuentras el campo.`;
+REGLAS: firstInvoiceNo = primer ticket del día actual. reporteZTotalAmount NO incluye IGTF. null si no encuentras el campo. SOLO JSON, sin explicaciones.`;
 
 export async function POST(req: NextRequest) {
   try {
     const { data, mediaType } = await req.json();
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return NextResponse.json({ error: "GEMINI_API_KEY no configurada" }, { status: 500 });
 
-    const isPDF = mediaType === "application/pdf";
-    const contentBlock = isPDF
-      ? { type: "document", source: { type: "base64", media_type: "application/pdf", data } }
-      : { type: "image", source: { type: "base64", media_type: mediaType, data } };
-
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY || "",
-        "anthropic-version": "2023-06-01",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
-        system: CLAUDE_SYSTEM,
-        messages: [
-          {
-            role: "user",
-            content: [contentBlock, { type: "text", text: "Extrae los datos de este Reporte Z." }],
-          },
-        ],
+        contents: [{
+          parts: [
+            { inline_data: { mime_type: mediaType, data } },
+            { text: PROMPT }
+          ]
+        }],
+        generationConfig: { temperature: 0, maxOutputTokens: 1024 }
       }),
     });
 
     const apiData = await res.json();
     if (apiData.error) return NextResponse.json({ error: apiData.error.message }, { status: 500 });
 
-    const text = apiData.content?.find((b: any) => b.type === "text")?.text || "";
+    const text = apiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
     const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
     return NextResponse.json(parsed);
   } catch (e: any) {
