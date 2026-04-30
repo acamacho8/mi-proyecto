@@ -1,6 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useDriveNav, DriveFile } from "@/app/lib/useDriveNav";
+
+declare global { interface Window { Tesseract: any; } }
 
 const STORES = [
   { code: "FQ01", label: "FQ01 · Chacao" },
@@ -17,6 +19,86 @@ const BC_FIELDS = [
   { key: "reporteZTotalAmount", label: "Reporte Z Total Amount", hint: "Sin IGTF" },
   { key: "igtfAmount",          label: "IGTF Amount",            hint: "" },
 ];
+
+const parseReporteZ = (text: string) => {
+  const lines = text.split("\n").map((l: string) => l.trim()).filter(Boolean);
+
+  const find = (pattern: RegExp): string | null => {
+    for (const line of lines) {
+      const m = line.match(pattern);
+      if (m) return m[1]?.trim() || null;
+    }
+    // también buscar en texto completo
+    const m = text.match(pattern);
+    return m ? m[1]?.trim() || null : null;
+  };
+
+  const findNum = (pattern: RegExp): number | null => {
+    const v = find(pattern);
+    if (!v) return null;
+    return parseFloat(v.replace(/\./g, "").replace(",", "."));
+  };
+
+  const modelo = find(/modelo[:\s]+([A-Z0-9\-]+)/i) || find(/(HKA-\d+)/i);
+  const serialNo = find(/serial[:\s#. ]+([A-Z0-9]+)/i) || find(/n[uú]mero\s+de\s+m[aá]quina[:\s]+([A-Z0-9]+)/i);
+  const numeroReporte = find(/reporte\s*z[:\s#]*\s*(\d+)/i) || find(/n[uú]m(?:ero)?\s*reporte[:\s]+(\d+)/i);
+
+  // Facturas: buscar patrones del ticket HKA
+  const firstInvoiceNo = findNum(/first\s+invoice[:\s]+(\d+)/i)
+    || findNum(/primer[a]?\s+factura[:\s]+(\d+)/i)
+    || findNum(/desde[:\s#]+(\d+)/i)
+    || findNum(/inicio[:\s]+(\d+)/i);
+  const lastInvoiceNo = findNum(/last\s+invoice[:\s]+(\d+)/i)
+    || findNum(/[uú]ltim[a]?\s+factura[:\s]+(\d+)/i)
+    || findNum(/hasta[:\s#]+(\d+)/i)
+    || findNum(/fin[:\s]+(\d+)/i);
+
+  // Montos ventas
+  const totalVenta = findNum(/total\s+venta\s+([\d.,]+)/i);
+  const igtfVenta = findNum(/igtf\s+venta\s*\(?3[,.]?00%?\)?\s+([\d.,]+)/i)
+    || findNum(/igtf\s+venta[:\s]+([\d.,]+)/i);
+  const totalNotaDebito = findNum(/total\s+nota\s+d[eé]bito\s+([\d.,]+)/i);
+  const igtfNotaDebito = findNum(/igtf\s+nota\s+d[eé]bito\s*\(?3[,.]?00%?\)?\s+([\d.,]+)/i);
+  const totalNotaCredito = findNum(/total\s+nota\s+cr[eé]dito\s+([\d.,]+)/i);
+  const igtfNotaCredito = findNum(/igtf\s+nota\s+cr[eé]dito\s*\(?3[,.]?00%?\)?\s+([\d.,]+)/i);
+  const totalGaveta = findNum(/total\s+gaveta\s+([\d.,]+)/i);
+
+  const tv = totalVenta || 0;
+  const iv = igtfVenta || 0;
+  const tnd = totalNotaDebito || 0;
+  const ind = igtfNotaDebito || 0;
+  const tnc = totalNotaCredito || 0;
+  const inc = igtfNotaCredito || 0;
+
+  const reporteZTotalAmount = Math.round(((tv - iv) + (tnd - ind) - (tnc - inc)) * 100) / 100;
+  const igtfAmount = Math.round((iv + ind - inc) * 100) / 100;
+
+  const advertencias: string[] = [];
+  if (!modelo) advertencias.push("Modelo no encontrado");
+  if (!serialNo) advertencias.push("Serial no encontrado");
+  if (!firstInvoiceNo) advertencias.push("First Invoice no encontrado");
+  if (!lastInvoiceNo) advertencias.push("Last Invoice no encontrado");
+  if (!totalVenta) advertencias.push("Total Venta no encontrado — verificar cálculo");
+
+  const fechaMatch = text.match(/(\d{2}[-\/]\d{2}[-\/]\d{4})/);
+  let fecha: string | null = null;
+  if (fechaMatch) {
+    const parts = fechaMatch[1].split(/[-\/]/);
+    fecha = `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+  }
+
+  const confianza = Math.round(
+    [modelo, serialNo, numeroReporte, firstInvoiceNo, lastInvoiceNo, totalVenta].filter(Boolean).length / 6 * 100
+  );
+
+  return {
+    modelo, serialNo, numeroReporte,
+    firstInvoiceNo, lastInvoiceNo,
+    reporteZTotalAmount, igtfAmount,
+    fecha, totalGaveta, confianza, advertencias,
+    calculo_detalle: { totalVenta, igtfVenta, totalNotaDebito, igtfNotaDebito, totalNotaCredito, igtfNotaCredito }
+  };
+};
 
 const S = {
   page: { fontFamily: "Inter, sans-serif", minHeight: "100vh", backgroundColor: "#f5f5f5" } as React.CSSProperties,
@@ -43,6 +125,7 @@ const S = {
 
 export default function ReporteZPage() {
   const drive = useDriveNav();
+  const [tesseractReady, setTesseractReady] = useState(false);
 
   const [storeCode, setStoreCode]       = useState("");
   const [storeFolders, setStoreFolders] = useState<DriveFile[]>([]);
@@ -55,8 +138,18 @@ export default function ReporteZPage() {
   const [fields, setFields]             = useState<Record<string, string>>({});
   const [rawData, setRawData]           = useState<any>(null);
   const [loading, setLoading]           = useState("");
+  const [ocrProgress, setOcrProgress]   = useState(0);
   const [error, setError]               = useState("");
   const [copied, setCopied]             = useState(false);
+
+  // Cargar Tesseract.js desde CDN
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    script.onload = () => setTesseractReady(true);
+    document.head.appendChild(script);
+  }, []);
 
   const withLoading = async (msg: string, fn: () => Promise<void>) => {
     setLoading(msg); setError("");
@@ -94,30 +187,44 @@ export default function ReporteZPage() {
   const handleDaySelect = (d: DriveFile) => withLoading("Buscando Reporte Z...", async () => {
     setSelDay(d); setFoundFile(null); setFields({}); setRawData(null);
     const file = await drive.findReporteZ(d.id, storeCode);
-    if (!file) throw new Error(`No se encontró Reporte Z en el día ${d.name}. Patrón esperado: MF... (FQ01/FQ88) o "reporte z" (FQ28).`);
+    if (!file) throw new Error(`No se encontró Reporte Z en el día ${d.name}.`);
     setFoundFile(file);
   });
 
-  const handleExtract = () => withLoading("Descargando y extrayendo datos con IA...", async () => {
-    if (!foundFile) return;
-    const { data, type } = await drive.downloadFile(foundFile.id, foundFile.mimeType);
-    const isPDF = type.includes("pdf") || foundFile.name.toLowerCase().endsWith(".pdf");
-    const isImage = type.startsWith("image/");
-    if (!isPDF && !isImage) throw new Error("Formato no soportado: " + type);
+  const handleExtract = async () => {
+    if (!foundFile || !tesseractReady) return;
+    setLoading("Descargando imagen...");
+    setError("");
+    setOcrProgress(0);
+    try {
+      const { data, type } = await drive.downloadFile(foundFile.id, foundFile.mimeType);
+      const imageUrl = `data:${type};base64,${data}`;
 
-    const res = await fetch("/api/extract-reporte-z", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data, mediaType: isPDF ? "application/pdf" : type }),
-    });
+      setLoading("Ejecutando OCR...");
+      const { createWorker } = window.Tesseract;
+      const worker = await createWorker("spa", 1, {
+        logger: (m: any) => {
+          if (m.status === "recognizing text") {
+            setOcrProgress(Math.round(m.progress * 100));
+          }
+        }
+      });
 
-    const parsed = await res.json();
-    if (parsed.error) throw new Error(parsed.error);
-    setRawData(parsed);
-    const extracted: Record<string, string> = {};
-    BC_FIELDS.forEach(f => { if (parsed[f.key] != null) extracted[f.key] = String(parsed[f.key]); });
-    setFields(extracted);
-  });
+      const { data: { text } } = await worker.recognize(imageUrl);
+      await worker.terminate();
+
+      const parsed = parseReporteZ(text);
+      setRawData(parsed);
+      const extracted: Record<string, string> = {};
+      BC_FIELDS.forEach(f => { if (parsed[f.key as keyof typeof parsed] != null) extracted[f.key] = String(parsed[f.key as keyof typeof parsed]); });
+      setFields(extracted);
+    } catch (e: any) {
+      setError("Error OCR: " + e.message);
+    } finally {
+      setLoading("");
+      setOcrProgress(0);
+    }
+  };
 
   const copyForBC = () => {
     const text = [
@@ -143,13 +250,30 @@ export default function ReporteZPage() {
 
       <main style={S.main}>
         {error && <div style={S.alert("err")}>{error}</div>}
-        {loading && <div style={S.alert("info")}>{loading}</div>}
+        {loading && (
+          <div style={S.alert("info")}>
+            {loading}
+            {ocrProgress > 0 && (
+              <div style={{ marginTop: "8px" }}>
+                <div style={{ background: "#d0f0e0", borderRadius: "4px", height: "6px", overflow: "hidden" }}>
+                  <div style={{ background: "#27AE60", height: "100%", width: `${ocrProgress}%`, transition: "width 0.3s" }} />
+                </div>
+                <span style={{ fontSize: "11px" }}>{ocrProgress}%</span>
+              </div>
+            )}
+          </div>
+        )}
 
         {!storeFolders.length && (
           <div style={S.card}>
-            <p style={{ color: "#555", marginBottom: "20px", fontSize: "14px", lineHeight: 1.6 }}>
+            <p style={{ color: "#555", marginBottom: "8px", fontSize: "14px", lineHeight: 1.6 }}>
               Conecta tu cuenta de Google para acceder a los Reportes Z en Drive
               y pre-llenar el Custom Information de los Sales Orders en BC.
+            </p>
+            <p style={{ color: "#aaa", marginBottom: "20px", fontSize: "12px" }}>
+              OCR procesado en el browser — sin costo de API.
+              {!tesseractReady && " · Cargando motor OCR..."}
+              {tesseractReady && " · Motor OCR listo ✓"}
             </p>
             <button style={S.btnPrimary} onClick={handleConnect}>Conectar Google Drive</button>
           </div>
@@ -198,7 +322,9 @@ export default function ReporteZPage() {
                   <p style={{ margin: 0, fontWeight: "700", fontSize: "14px", color: "#1a7a3c" }}>Reporte Z encontrado</p>
                   <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#555" }}>{foundFile.name}</p>
                 </div>
-                <button style={S.btnPrimary} onClick={handleExtract}>Extraer datos →</button>
+                <button style={{ ...S.btnPrimary, opacity: !tesseractReady ? 0.6 : 1 }} onClick={handleExtract} disabled={!tesseractReady}>
+                  {tesseractReady ? "Extraer datos →" : "Cargando OCR..."}
+                </button>
               </div>
             )}
           </div>
