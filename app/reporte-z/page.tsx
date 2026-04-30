@@ -9,21 +9,20 @@ const STORES = [
 ];
 
 const BC_FIELDS = [
-  { key: "modelo",              label: "Modelo",                 hint: "" },
-  { key: "serialNo",            label: "Serial No.",             hint: "" },
-  { key: "numeroReporte",       label: "Numero Reporte",         hint: "" },
-  { key: "firstInvoiceNo",      label: "First Invoice No.",      hint: "Primer número del día" },
-  { key: "lastInvoiceNo",       label: "Last Invoice No.",       hint: "Último número del día" },
-  { key: "reporteZTotalAmount", label: "Reporte Z Total Amount", hint: "Sin IGTF: TOTAL VENTA + ND − NC" },
-  { key: "igtfAmount",          label: "IGTF Amount",            hint: "" },
+  { key: "modelo",              label: "Modelo",                 hint: "",                                          warn: false },
+  { key: "serialNo",            label: "Serial No.",             hint: "",                                          warn: false },
+  { key: "numeroReporte",       label: "Numero Reporte",         hint: "⚠️ Verificar contra el ticket físico — OCR puede confundir 2↔7, 1↔4, 0↔6", warn: true  },
+  { key: "firstInvoiceNo",      label: "First Invoice No.",      hint: "Primer número del día",                     warn: false },
+  { key: "lastInvoiceNo",       label: "Last Invoice No.",       hint: "Último número del día",                     warn: false },
+  { key: "reporteZTotalAmount", label: "Reporte Z Total Amount", hint: "Sin IGTF: TOTAL VENTA − IGTF ± ND ± NC",   warn: false },
+  { key: "igtfAmount",          label: "IGTF Amount",            hint: "",                                          warn: false },
 ];
 
-// Extrae un número de una línea: "TOTAL VENTA    Bs 495.499,68" → 495499.68
-const extractNum = (line: string): number | null => {
-  // Buscar el último número del formato venezolano: 1.234.567,89
-  const matches = line.match(/[\d]{1,3}(?:\.\d{3})*(?:,\d{2})?/g);
-  if (!matches || matches.length === 0) return null;
-  const raw = matches[matches.length - 1];
+// Extrae el último número venezolano de una línea
+const extractNum = (s: string): number | null => {
+  const matches = [...s.matchAll(/(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/g)];
+  if (!matches.length) return null;
+  const raw = matches[matches.length - 1][1];
   return parseFloat(raw.replace(/\./g, "").replace(",", "."));
 };
 
@@ -40,116 +39,116 @@ const parseReporteZ = (text: string) => {
   let numeroReporte: string | null = null;
   let modelo: string | null = null;
   let serialNo: string | null = null;
-  let firstInvoiceNo: number | null = null;
-  let lastInvoiceNo: number | null = null;
+  let firstInvoiceNo: string | null = null;
+  let lastInvoiceNo: string | null = null;
   let fecha: string | null = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const upper = line.toUpperCase();
 
-    // Número de reporte Z
-    if (upper.includes("REPORTE Z") && !upper.includes("TOTAL")) {
-      const m = line.match(/(\d{3,6})\s*$/);
+    // NUMERO DE REPORTE Z — "REPORTE Z:   1224"
+    if (!numeroReporte) {
+      const m = line.match(/REPORTE\s*[Z2]\s*[:\s]\s*(\d{3,6})/i);
       if (m) numeroReporte = m[1];
-      // también buscar en la misma línea
-      const m2 = line.match(/REPORTE\s*Z[:\s#]*(\d+)/i);
-      if (m2) numeroReporte = m2[1];
     }
 
-    // Modelo
-    if (upper.includes("MODELO") || upper.includes("HKA-")) {
-      const m = line.match(/(HKA-\d+)/i);
-      if (m) modelo = m[1];
-    }
-
-    // Serial
-    if (upper.includes("SERIAL") || upper.includes("S/N")) {
-      const m = line.match(/[:\s#]+([A-Z][0-9A-Z]{6,})/i);
+    // SERIAL — "77C7021976"
+    if (!serialNo) {
+      const m = line.match(/\b([0-9]{2}[A-Z][0-9]{7,})\b/);
       if (m) serialNo = m[1];
     }
 
-    // Fecha
+    // MODELO HKA
+    if (!modelo) {
+      const m = line.match(/(HKA[-\s]?\d+)/i);
+      if (m) modelo = m[1].replace(/\s/, "-");
+    }
+
+    // FECHA
     if (!fecha) {
-      const m = line.match(/(\d{2}[-\/]\d{2}[-\/]\d{4})/);
+      const m = line.match(/FECHA:\s*(\d{2}-\d{2}-\d{4})/i);
       if (m) {
-        const parts = m[1].split(/[-\/]/);
-        fecha = `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+        const parts = m[1].split("-");
+        fecha = `${parts[2]}-${parts[1]}-${parts[0]}`;
       }
     }
 
-    // First / Last Invoice
-    if (upper.includes("DESDE") || upper.includes("FIRST INVOICE") || upper.includes("PRIMERA FACT")) {
-      const n = extractNum(line);
-      if (n) firstInvoiceNo = n;
-    }
-    if (upper.includes("HASTA") || upper.includes("LAST INVOICE") || upper.includes("ULTIMA FACT")) {
-      const n = extractNum(line);
-      if (n) lastInvoiceNo = n;
+    // TOTAL GAVETA
+    if (upper.includes("TOTAL GAVETA")) {
+      const v = extractNum(line);
+      if (v !== null) totalGaveta = v;
     }
 
-    // ---- VENTAS ----
-    if (upper.match(/^TOTAL\s+VENTA\s/) || upper === "TOTAL VENTA") {
-      totalVenta = extractNum(line);
+    // TOTAL VENTA
+    if (upper.match(/^TOTAL\s+VENTA\b/) && !upper.includes("NOTA")) {
+      const v = extractNum(line);
+      if (v !== null) totalVenta = v;
+      else if (lines[i + 1]) {
+        const v2 = extractNum(lines[i + 1]);
+        if (v2 !== null) totalVenta = v2;
+      }
     }
+
+    // IGTF VENTA
     if (upper.match(/^IGTF\s+VENTA/)) {
-      igtfVenta = extractNum(line);
+      const v = extractNum(line);
+      if (v !== null) igtfVenta = v;
     }
 
-    // ---- NOTAS DE DÉBITO ----
-    if (upper.match(/^TOTAL\s+NOTA\s+(DE\s+)?D[EÉ]BITO/) || upper.match(/^TOTAL\s+N\.?D/)) {
-      totalNotaDebito = extractNum(line);
+    // TOTAL NOTA DEBITO
+    if (upper.match(/^TOTAL\s+NOTA\s+DE[B]ITO\b/)) {
+      const v = extractNum(line);
+      if (v !== null) totalNotaDebito = v;
     }
-    if (upper.match(/^IGTF\s+NOTA\s+(DE\s+)?D[EÉ]BITO/)) {
-      igtfNotaDebito = extractNum(line);
-    }
-
-    // ---- NOTAS DE CRÉDITO ----
-    if (upper.match(/^TOTAL\s+NOTA\s+(DE\s+)?CR[EÉ]DITO/) || upper.match(/^TOTAL\s+N\.?C/)) {
-      totalNotaCredito = extractNum(line);
-    }
-    if (upper.match(/^IGTF\s+NOTA\s+(DE\s+)?CR[EÉ]DITO/)) {
-      igtfNotaCredito = extractNum(line);
+    if (upper.match(/^IGTF\s+NOTA\s+DE[B]ITO/)) {
+      const v = extractNum(line);
+      if (v !== null) igtfNotaDebito = v;
     }
 
-    // ---- TOTAL GAVETA ----
-    if (upper.match(/^TOTAL\s+GAVETA/)) {
-      totalGaveta = extractNum(line);
+    // TOTAL NOTA CREDITO
+    if (upper.match(/^TOTAL\s+NOTA\s+CR[EÉ]DITO\b/)) {
+      const v = extractNum(line);
+      if (v !== null) totalNotaCredito = v;
+    }
+    if (upper.match(/^IGTF\s+NOTA\s+CR[EÉ]DITO/)) {
+      const v = extractNum(line);
+      if (v !== null) igtfNotaCredito = v;
+    }
+
+    // ULTIMA FACTURA (Last Invoice) — "ULTIMA FACTURA    00083776"
+    if (upper.includes("ULTIMA FACTURA") || upper.includes("ULT.FACTURA")) {
+      const m = line.match(/\b(\d{7,8})\b/);
+      if (m) lastInvoiceNo = m[1];
+    }
+
+    // PRIMERA FACTURA (First Invoice)
+    if (!firstInvoiceNo && (upper.includes("PRIMERA FACTURA") || upper.includes("PRIMER COMP") || upper.includes("DESDE"))) {
+      const m = line.match(/\b(\d{7,8})\b/);
+      if (m) firstInvoiceNo = m[1];
     }
   }
 
-  // Cálculos finales
-  const tv = totalVenta ?? 0;
-  const iv = igtfVenta ?? 0;
-  const tnd = totalNotaDebito ?? 0;
-  const ind = igtfNotaDebito ?? 0;
-  const tnc = totalNotaCredito ?? 0;
-  const inc = igtfNotaCredito ?? 0;
-
+  const tv = totalVenta ?? 0, iv = igtfVenta ?? 0;
+  const tnd = totalNotaDebito ?? 0, ind = igtfNotaDebito ?? 0;
+  const tnc = totalNotaCredito ?? 0, inc = igtfNotaCredito ?? 0;
   const reporteZTotalAmount = Math.round(((tv - iv) + (tnd - ind) - (tnc - inc)) * 100) / 100;
   const igtfAmount = Math.round((iv + ind - inc) * 100) / 100;
 
   const advertencias: string[] = [];
   if (!numeroReporte) advertencias.push("Número de Reporte Z no encontrado");
-  if (totalVenta === null) advertencias.push("TOTAL VENTA no encontrado — verificar cálculo");
+  if (totalVenta === null) advertencias.push("TOTAL VENTA no encontrado");
   if (totalGaveta === null) advertencias.push("TOTAL GAVETA no encontrado");
-  if (!firstInvoiceNo) advertencias.push("First Invoice no encontrado");
-  if (!lastInvoiceNo) advertencias.push("Last Invoice no encontrado");
-
-  const confianza = Math.round(
-    [numeroReporte, totalVenta, totalGaveta, firstInvoiceNo, lastInvoiceNo, modelo].filter(v => v !== null).length / 6 * 100
-  );
+  if (!lastInvoiceNo) advertencias.push("Última Factura no encontrada");
 
   return {
     modelo, serialNo, numeroReporte,
     firstInvoiceNo, lastInvoiceNo,
     reporteZTotalAmount, igtfAmount,
-    fecha, totalGaveta, confianza, advertencias,
-    calculo_detalle: {
-      totalVenta, igtfVenta,
-      totalNotaDebito, igtfNotaDebito,
-      totalNotaCredito, igtfNotaCredito
-    }
+    fecha, totalGaveta,
+    confianza: Math.round([numeroReporte, totalVenta, totalGaveta, lastInvoiceNo, serialNo].filter(v => v !== null).length / 5 * 100),
+    advertencias,
+    calculo_detalle: { totalVenta, igtfVenta, totalNotaDebito, igtfNotaDebito, totalNotaCredito, igtfNotaCredito }
   };
 };
 
@@ -161,12 +160,14 @@ const S = {
   card: { backgroundColor: "white", borderRadius: "12px", padding: "32px", boxShadow: "0 2px 8px rgba(0,0,0,0.08)", marginBottom: "20px" } as React.CSSProperties,
   label: { display: "block", fontWeight: "600", marginBottom: "8px", color: "#333", fontSize: "14px" } as React.CSSProperties,
   input: { width: "100%", padding: "10px 14px", border: "1.5px solid #eee", borderRadius: "8px", fontSize: "14px", outline: "none", boxSizing: "border-box" } as React.CSSProperties,
+  inputWarn: { width: "100%", padding: "10px 14px", border: "2px solid #F1C40F", borderRadius: "8px", fontSize: "14px", outline: "none", boxSizing: "border-box", backgroundColor: "#fffbea" } as React.CSSProperties,
   btnPrimary: { padding: "12px 24px", backgroundColor: "#C0392B", color: "white", border: "none", borderRadius: "8px", fontSize: "14px", fontWeight: "700", cursor: "pointer" } as React.CSSProperties,
   btnSecondary: { padding: "10px 18px", backgroundColor: "white", color: "#C0392B", border: "2px solid #C0392B", borderRadius: "8px", fontSize: "14px", fontWeight: "700", cursor: "pointer" } as React.CSSProperties,
   pill: (active: boolean) => ({ padding: "8px 16px", borderRadius: "20px", fontSize: "13px", fontWeight: active ? "700" : "400", cursor: "pointer", border: `2px solid ${active ? "#C0392B" : "#eee"}`, backgroundColor: active ? "#C0392B" : "white", color: active ? "white" : "#555" }) as React.CSSProperties,
   tag: (active: boolean) => ({ padding: "6px 12px", borderRadius: "6px", fontSize: "12px", fontWeight: active ? "700" : "400", cursor: "pointer", border: `1.5px solid ${active ? "#C0392B" : "#ddd"}`, backgroundColor: active ? "#fff5f5" : "white", color: active ? "#C0392B" : "#555" }) as React.CSSProperties,
-  row: { display: "grid", gridTemplateColumns: "180px 1fr", borderBottom: "1px solid #f5f5f5", alignItems: "stretch" } as React.CSSProperties,
+  row: { display: "grid", gridTemplateColumns: "200px 1fr", borderBottom: "1px solid #f5f5f5", alignItems: "stretch" } as React.CSSProperties,
   rowLabel: { padding: "10px 14px", backgroundColor: "#fafafa", borderRight: "1px solid #f5f5f5" } as React.CSSProperties,
+  rowLabelWarn: { padding: "10px 14px", backgroundColor: "#fffbea", borderRight: "1px solid #f5e6a0" } as React.CSSProperties,
   rowInput: { padding: "6px 10px", display: "flex", alignItems: "center" } as React.CSSProperties,
   alert: (type: "warn" | "err" | "info") => ({
     padding: "10px 14px", borderRadius: "8px", fontSize: "13px", marginBottom: "16px",
@@ -178,26 +179,29 @@ const S = {
 
 export default function ReporteZPage() {
   const drive = useDriveNav();
-  const [storeCode, setStoreCode]       = useState("");
-  const [storeFolders, setStoreFolders] = useState<DriveFile[]>([]);
-  const [months, setMonths]             = useState<DriveFile[]>([]);
-  const [selMonth, setSelMonth]         = useState<DriveFile | null>(null);
-  const [days, setDays]                 = useState<DriveFile[]>([]);
-  const [selDay, setSelDay]             = useState<DriveFile | null>(null);
-  const [foundFile, setFoundFile]       = useState<DriveFile | null>(null);
-  const [numeroCaja, setNumeroCaja]     = useState("");
-  const [fields, setFields]             = useState<Record<string, string>>({});
-  const [rawData, setRawData]           = useState<any>(null);
-  const [loading, setLoading]           = useState("");
-  const [error, setError]               = useState("");
-  const [copied, setCopied]             = useState(false);
-  const [rawText, setRawText]           = useState(""); // para debug
+  const [storeCode, setStoreCode]         = useState("");
+  const [storeFolders, setStoreFolders]   = useState<DriveFile[]>([]);
+  const [months, setMonths]               = useState<DriveFile[]>([]);
+  const [selMonth, setSelMonth]           = useState<DriveFile | null>(null);
+  const [days, setDays]                   = useState<DriveFile[]>([]);
+  const [selDay, setSelDay]               = useState<DriveFile | null>(null);
+  const [reportesZ, setReportesZ]         = useState<DriveFile[]>([]);
+  const [selectedFile, setSelectedFile]   = useState<DriveFile | null>(null);
+  const [numeroCaja, setNumeroCaja]       = useState("");
+  const [fields, setFields]               = useState<Record<string, string>>({});
+  const [rawData, setRawData]             = useState<any>(null);
+  const [loading, setLoading]             = useState("");
+  const [error, setError]                 = useState("");
+  const [copied, setCopied]               = useState(false);
+  const [rawText, setRawText]             = useState("");
 
   const withLoading = async (msg: string, fn: () => Promise<void>) => {
     setLoading(msg); setError("");
     try { await fn(); } catch (e: any) { setError(e.message); }
     finally { setLoading(""); }
   };
+
+  const resetResult = () => { setFields({}); setRawData(null); setRawText(""); };
 
   const handleConnect = () => withLoading("Conectando a Google Drive...", async () => {
     const folders = await drive.listStoreFolders();
@@ -207,7 +211,7 @@ export default function ReporteZPage() {
 
   const handleStoreSelect = (code: string) => withLoading("Cargando meses...", async () => {
     setStoreCode(code);
-    setSelMonth(null); setSelDay(null); setFoundFile(null); setFields({}); setRawData(null); setRawText("");
+    setSelMonth(null); setSelDay(null); setReportesZ([]); setSelectedFile(null); resetResult();
     const storeObj = STORES.find(s => s.code === code)!;
     const keyword = storeObj.label.split("·")[1].trim().toLowerCase();
     const folder = storeFolders.find(f =>
@@ -220,25 +224,26 @@ export default function ReporteZPage() {
   });
 
   const handleMonthSelect = (m: DriveFile) => withLoading("Cargando días...", async () => {
-    setSelMonth(m); setSelDay(null); setFoundFile(null); setFields({}); setRawData(null); setRawText("");
+    setSelMonth(m); setSelDay(null); setReportesZ([]); setSelectedFile(null); resetResult();
     const d = await drive.listDays(m.id);
     setDays(d);
   });
 
-  const handleDaySelect = (d: DriveFile) => withLoading("Buscando Reporte Z...", async () => {
-    setSelDay(d); setFoundFile(null); setFields({}); setRawData(null); setRawText("");
-    const file = await drive.findReporteZ(d.id, storeCode);
-    if (!file) throw new Error(`No se encontró Reporte Z en el día ${d.name}.`);
-    setFoundFile(file);
+  const handleDaySelect = (d: DriveFile) => withLoading("Buscando Reportes Z...", async () => {
+    setSelDay(d); setReportesZ([]); setSelectedFile(null); resetResult();
+    const files = await drive.findReportesZ(d.id, storeCode);
+    if (!files.length) throw new Error(`No se encontraron Reportes Z en el día ${d.name}.`);
+    setReportesZ(files);
+    if (files.length === 1) setSelectedFile(files[0]);
   });
 
   const handleExtract = async () => {
-    if (!foundFile) return;
-    setError(""); setRawText("");
+    if (!selectedFile) return;
+    setError(""); resetResult();
     try {
-      const text = await drive.extractTextViaGoogleDoc(foundFile.id, setLoading);
-      setRawText(text); // guardar para debug
-      if (!text || text.trim().length < 10) throw new Error("El OCR no extrajo texto suficiente. Verifica la calidad de la imagen.");
+      const text = await drive.extractTextViaGoogleDoc(selectedFile.id, setLoading);
+      setRawText(text);
+      if (!text || text.trim().length < 10) throw new Error("El OCR no extrajo texto suficiente.");
       const parsed = parseReporteZ(text);
       setRawData(parsed);
       const extracted: Record<string, string> = {};
@@ -311,13 +316,29 @@ export default function ReporteZPage() {
                 </div>
               </div>
             )}
-            {foundFile && !hasResult && (
-              <div style={{ marginTop: "16px", padding: "14px 16px", backgroundColor: "#f0fff4", border: "1px solid #b7f0c8", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div>
-                  <p style={{ margin: 0, fontWeight: "700", fontSize: "14px", color: "#1a7a3c" }}>Reporte Z encontrado</p>
-                  <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#555" }}>{foundFile.name}</p>
+            {reportesZ.length > 0 && (
+              <div style={{ marginTop: "16px" }}>
+                <label style={S.label}>Reporte Z ({reportesZ.length} encontrado{reportesZ.length > 1 ? "s" : ""})</label>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {reportesZ.map(f => (
+                    <div key={f.id} onClick={() => { setSelectedFile(f); resetResult(); }} style={{
+                      padding: "12px 16px", borderRadius: "8px", cursor: "pointer",
+                      border: `2px solid ${selectedFile?.id === f.id ? "#C0392B" : "#eee"}`,
+                      backgroundColor: selectedFile?.id === f.id ? "#fff5f5" : "white",
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                    }}>
+                      <span style={{ fontSize: "13px", fontWeight: selectedFile?.id === f.id ? "700" : "400", color: selectedFile?.id === f.id ? "#C0392B" : "#333" }}>
+                        {f.name}
+                      </span>
+                      {selectedFile?.id === f.id && <span style={{ fontSize: "11px", color: "#C0392B", fontWeight: "700" }}>● Seleccionado</span>}
+                    </div>
+                  ))}
                 </div>
-                <button style={S.btnPrimary} onClick={handleExtract}>Extraer datos →</button>
+                {selectedFile && !hasResult && (
+                  <button style={{ ...S.btnPrimary, marginTop: "12px", width: "100%" }} onClick={handleExtract}>
+                    Extraer datos →
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -325,23 +346,34 @@ export default function ReporteZPage() {
 
         {hasResult && (
           <div style={S.card}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
               <div>
                 <h2 style={{ color: "#C0392B", fontSize: "18px", fontWeight: "700", margin: 0 }}>Custom Information</h2>
                 <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#888" }}>
                   {rawData?.fecha && <span>{rawData.fecha} · </span>}
-                  Confianza: <strong style={{ color: confColor }}>{conf}%</strong>
+                  Confianza OCR: <strong style={{ color: confColor }}>{conf}%</strong>
                 </p>
               </div>
               <div style={{ display: "flex", gap: "10px" }}>
-                <button style={S.btnSecondary} onClick={() => { setFields({}); setRawData(null); setRawText(""); }}>← Nuevo</button>
+                <button style={S.btnSecondary} onClick={resetResult}>← Otro</button>
                 <button style={S.btnPrimary} onClick={copyForBC}>{copied ? "✓ Copiado" : "Copiar para BC"}</button>
               </div>
             </div>
+
+            {/* Advertencia fija para el número de reporte */}
+            <div style={{ ...S.alert("warn"), marginBottom: "12px" }}>
+              <strong>⚠️ Verificar siempre el Numero Reporte</strong> contra el ticket físico antes de guardar en BC.
+              El OCR puede confundir dígitos similares (2↔7, 1↔4, 0↔6) en tickets térmicos.
+            </div>
+
             {rawData?.advertencias?.length > 0 && (
-              <div style={S.alert("warn")}><strong>Verificar: </strong>{rawData.advertencias.join(" · ")}</div>
+              <div style={{ ...S.alert("err"), marginBottom: "12px" }}>
+                <strong>Campos no encontrados: </strong>{rawData.advertencias.join(" · ")}
+              </div>
             )}
+
             <div style={{ border: "1px solid #f0f0f0", borderRadius: "8px", overflow: "hidden" }}>
+              {/* Numero de Caja — siempre manual */}
               <div style={S.row}>
                 <div style={S.rowLabel}>
                   <p style={{ margin: 0, fontSize: "13px", fontWeight: "600", color: "#333" }}>Numero de Caja</p>
@@ -351,20 +383,25 @@ export default function ReporteZPage() {
                   <input style={{ ...S.input, border: "1.5px solid #F1C40F" }} value={numeroCaja} onChange={e => setNumeroCaja(e.target.value)} placeholder="01" />
                 </div>
               </div>
+
               {BC_FIELDS.map((f, i) => (
                 <div key={f.key} style={{ ...S.row, borderBottom: i < BC_FIELDS.length - 1 ? "1px solid #f5f5f5" : "none" }}>
-                  <div style={S.rowLabel}>
-                    <p style={{ margin: 0, fontSize: "13px", fontWeight: "600", color: "#333" }}>{f.label}</p>
-                    {f.hint && <p style={{ margin: "2px 0 0", fontSize: "11px", color: "#aaa" }}>{f.hint}</p>}
+                  <div style={f.warn ? S.rowLabelWarn : S.rowLabel}>
+                    <p style={{ margin: 0, fontSize: "13px", fontWeight: "600", color: f.warn ? "#7d6008" : "#333" }}>{f.label}</p>
+                    {f.hint && <p style={{ margin: "2px 0 0", fontSize: "11px", color: f.warn ? "#a07010" : "#aaa" }}>{f.hint}</p>}
                   </div>
                   <div style={S.rowInput}>
-                    <input style={{ ...S.input, backgroundColor: fields[f.key] ? "white" : "#fafafa" }} value={fields[f.key] ?? ""} onChange={e => setFields(prev => ({ ...prev, [f.key]: e.target.value }))} placeholder="—" />
+                    <input
+                      style={f.warn ? S.inputWarn : { ...S.input, backgroundColor: fields[f.key] ? "white" : "#fafafa" }}
+                      value={fields[f.key] ?? ""}
+                      onChange={e => setFields(prev => ({ ...prev, [f.key]: e.target.value }))}
+                      placeholder="—"
+                    />
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* Desglose cálculo */}
             {rawData?.calculo_detalle && (
               <details style={{ marginTop: "16px" }}>
                 <summary style={{ fontSize: "13px", color: "#888", cursor: "pointer" }}>Ver desglose del cálculo</summary>
@@ -372,7 +409,7 @@ export default function ReporteZPage() {
                   <table style={{ width: "100%", borderCollapse: "collapse", color: "#555" }}>
                     <tbody>
                       <tr><td style={{ padding: "4px 0" }}>TOTAL VENTA</td><td style={{ textAlign: "right" }}>Bs {fmt(rawData.calculo_detalle.totalVenta)}</td></tr>
-                      <tr><td style={{ padding: "4px 0", color: "#C0392B" }}>− IGTF VENTA</td><td style={{ textAlign: "right", color: "#C0392B" }}>Bs {fmt(rawData.calculo_detalle.igtfVenta)}</td></tr>
+                      <tr><td style={{ padding: "4px 0", color: "#C0392B" }}>− IGTF VENTA (3%)</td><td style={{ textAlign: "right", color: "#C0392B" }}>Bs {fmt(rawData.calculo_detalle.igtfVenta)}</td></tr>
                       {(rawData.calculo_detalle.totalNotaDebito ?? 0) > 0 && <tr><td style={{ padding: "4px 0", color: "#27AE60" }}>+ TOTAL ND − IGTF ND</td><td style={{ textAlign: "right", color: "#27AE60" }}>Bs {fmt((rawData.calculo_detalle.totalNotaDebito||0)-(rawData.calculo_detalle.igtfNotaDebito||0))}</td></tr>}
                       {(rawData.calculo_detalle.totalNotaCredito ?? 0) > 0 && <tr><td style={{ padding: "4px 0", color: "#C0392B" }}>− TOTAL NC − IGTF NC</td><td style={{ textAlign: "right", color: "#C0392B" }}>Bs {fmt((rawData.calculo_detalle.totalNotaCredito||0)-(rawData.calculo_detalle.igtfNotaCredito||0))}</td></tr>}
                       <tr style={{ borderTop: "1px solid #eee" }}>
@@ -386,7 +423,6 @@ export default function ReporteZPage() {
               </details>
             )}
 
-            {/* Texto OCR raw para debug */}
             {rawText && (
               <details style={{ marginTop: "8px" }}>
                 <summary style={{ fontSize: "12px", color: "#ccc", cursor: "pointer" }}>Ver texto OCR extraído</summary>
