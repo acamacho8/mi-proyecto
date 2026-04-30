@@ -28,7 +28,6 @@ const parseReporteZ = (text: string) => {
       const m = line.match(pattern);
       if (m) return m[1]?.trim() || null;
     }
-    // también buscar en texto completo
     const m = text.match(pattern);
     return m ? m[1]?.trim() || null : null;
   };
@@ -42,34 +41,19 @@ const parseReporteZ = (text: string) => {
   const modelo = find(/modelo[:\s]+([A-Z0-9\-]+)/i) || find(/(HKA-\d+)/i);
   const serialNo = find(/serial[:\s#. ]+([A-Z0-9]+)/i) || find(/n[uú]mero\s+de\s+m[aá]quina[:\s]+([A-Z0-9]+)/i);
   const numeroReporte = find(/reporte\s*z[:\s#]*\s*(\d+)/i) || find(/n[uú]m(?:ero)?\s*reporte[:\s]+(\d+)/i);
-
-  // Facturas: buscar patrones del ticket HKA
-  const firstInvoiceNo = findNum(/first\s+invoice[:\s]+(\d+)/i)
-    || findNum(/primer[a]?\s+factura[:\s]+(\d+)/i)
-    || findNum(/desde[:\s#]+(\d+)/i)
-    || findNum(/inicio[:\s]+(\d+)/i);
-  const lastInvoiceNo = findNum(/last\s+invoice[:\s]+(\d+)/i)
-    || findNum(/[uú]ltim[a]?\s+factura[:\s]+(\d+)/i)
-    || findNum(/hasta[:\s#]+(\d+)/i)
-    || findNum(/fin[:\s]+(\d+)/i);
-
-  // Montos ventas
+  const firstInvoiceNo = findNum(/first\s+invoice[:\s]+(\d+)/i) || findNum(/primer[a]?\s+factura[:\s]+(\d+)/i) || findNum(/desde[:\s#]+(\d+)/i) || findNum(/inicio[:\s]+(\d+)/i);
+  const lastInvoiceNo = findNum(/last\s+invoice[:\s]+(\d+)/i) || findNum(/[uú]ltim[a]?\s+factura[:\s]+(\d+)/i) || findNum(/hasta[:\s#]+(\d+)/i) || findNum(/fin[:\s]+(\d+)/i);
   const totalVenta = findNum(/total\s+venta\s+([\d.,]+)/i);
-  const igtfVenta = findNum(/igtf\s+venta\s*\(?3[,.]?00%?\)?\s+([\d.,]+)/i)
-    || findNum(/igtf\s+venta[:\s]+([\d.,]+)/i);
+  const igtfVenta = findNum(/igtf\s+venta\s*\(?3[,.]?00%?\)?\s+([\d.,]+)/i) || findNum(/igtf\s+venta[:\s]+([\d.,]+)/i);
   const totalNotaDebito = findNum(/total\s+nota\s+d[eé]bito\s+([\d.,]+)/i);
   const igtfNotaDebito = findNum(/igtf\s+nota\s+d[eé]bito\s*\(?3[,.]?00%?\)?\s+([\d.,]+)/i);
   const totalNotaCredito = findNum(/total\s+nota\s+cr[eé]dito\s+([\d.,]+)/i);
   const igtfNotaCredito = findNum(/igtf\s+nota\s+cr[eé]dito\s*\(?3[,.]?00%?\)?\s+([\d.,]+)/i);
   const totalGaveta = findNum(/total\s+gaveta\s+([\d.,]+)/i);
 
-  const tv = totalVenta || 0;
-  const iv = igtfVenta || 0;
-  const tnd = totalNotaDebito || 0;
-  const ind = igtfNotaDebito || 0;
-  const tnc = totalNotaCredito || 0;
-  const inc = igtfNotaCredito || 0;
-
+  const tv = totalVenta || 0, iv = igtfVenta || 0;
+  const tnd = totalNotaDebito || 0, ind = igtfNotaDebito || 0;
+  const tnc = totalNotaCredito || 0, inc = igtfNotaCredito || 0;
   const reporteZTotalAmount = Math.round(((tv - iv) + (tnd - ind) - (tnc - inc)) * 100) / 100;
   const igtfAmount = Math.round((iv + ind - inc) * 100) / 100;
 
@@ -87,15 +71,11 @@ const parseReporteZ = (text: string) => {
     fecha = `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
   }
 
-  const confianza = Math.round(
-    [modelo, serialNo, numeroReporte, firstInvoiceNo, lastInvoiceNo, totalVenta].filter(Boolean).length / 6 * 100
-  );
-
   return {
-    modelo, serialNo, numeroReporte,
-    firstInvoiceNo, lastInvoiceNo,
-    reporteZTotalAmount, igtfAmount,
-    fecha, totalGaveta, confianza, advertencias,
+    modelo, serialNo, numeroReporte, firstInvoiceNo, lastInvoiceNo,
+    reporteZTotalAmount, igtfAmount, fecha, totalGaveta,
+    confianza: Math.round([modelo, serialNo, numeroReporte, firstInvoiceNo, lastInvoiceNo, totalVenta].filter(Boolean).length / 6 * 100),
+    advertencias,
     calculo_detalle: { totalVenta, igtfVenta, totalNotaDebito, igtfNotaDebito, totalNotaCredito, igtfNotaCredito }
   };
 };
@@ -126,7 +106,6 @@ const S = {
 export default function ReporteZPage() {
   const drive = useDriveNav();
   const [tesseractReady, setTesseractReady] = useState(false);
-
   const [storeCode, setStoreCode]       = useState("");
   const [storeFolders, setStoreFolders] = useState<DriveFile[]>([]);
   const [months, setMonths]             = useState<DriveFile[]>([]);
@@ -142,11 +121,11 @@ export default function ReporteZPage() {
   const [error, setError]               = useState("");
   const [copied, setCopied]             = useState(false);
 
-  // Cargar Tesseract.js desde CDN
   useEffect(() => {
     if (typeof window === "undefined") return;
     const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    // Usar versión 4 — API más estable desde CDN
+    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js";
     script.onload = () => setTesseractReady(true);
     document.head.appendChild(script);
   }, []);
@@ -174,8 +153,7 @@ export default function ReporteZPage() {
     );
     if (!folder) throw new Error(`No se encontró carpeta para ${code}. Disponibles: ${storeFolders.map(f => f.name).join(", ")}`);
     const m = await drive.listMonths(folder.id);
-    setMonths(m);
-    setDays([]);
+    setMonths(m); setDays([]);
   });
 
   const handleMonthSelect = (m: DriveFile) => withLoading("Cargando días...", async () => {
@@ -194,43 +172,44 @@ export default function ReporteZPage() {
   const handleExtract = async () => {
     if (!foundFile || !tesseractReady) return;
     setLoading("Descargando imagen...");
-    setError("");
-    setOcrProgress(0);
+    setError(""); setOcrProgress(0);
     try {
       const { data, type } = await drive.downloadFile(foundFile.id, foundFile.mimeType);
       const imageUrl = `data:${type};base64,${data}`;
 
-      setLoading("Ejecutando OCR...");
-      const { createWorker } = window.Tesseract;
-      const worker = await createWorker("spa", 1, {
+      setLoading("Ejecutando OCR (puede tardar ~30s)...");
+
+      // Tesseract.js v4 API desde CDN
+      const worker = await window.Tesseract.createWorker({
         logger: (m: any) => {
           if (m.status === "recognizing text") {
             setOcrProgress(Math.round(m.progress * 100));
           }
         }
       });
-
+      await worker.loadLanguage("spa");
+      await worker.initialize("spa");
       const { data: { text } } = await worker.recognize(imageUrl);
       await worker.terminate();
 
+      if (!text) throw new Error("No se pudo extraer texto de la imagen");
       const parsed = parseReporteZ(text);
       setRawData(parsed);
       const extracted: Record<string, string> = {};
-      BC_FIELDS.forEach(f => { if (parsed[f.key as keyof typeof parsed] != null) extracted[f.key] = String(parsed[f.key as keyof typeof parsed]); });
+      BC_FIELDS.forEach(f => {
+        const val = parsed[f.key as keyof typeof parsed];
+        if (val != null) extracted[f.key] = String(val);
+      });
       setFields(extracted);
     } catch (e: any) {
-      setError("Error OCR: " + e.message);
+      setError("Error OCR: " + (e?.message || String(e)));
     } finally {
-      setLoading("");
-      setOcrProgress(0);
+      setLoading(""); setOcrProgress(0);
     }
   };
 
   const copyForBC = () => {
-    const text = [
-      `Numero de Caja: ${numeroCaja}`,
-      ...BC_FIELDS.map(f => `${f.label}: ${fields[f.key] || ""}`),
-    ].join("\n");
+    const text = [`Numero de Caja: ${numeroCaja}`, ...BC_FIELDS.map(f => `${f.label}: ${fields[f.key] || ""}`)].join("\n");
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -247,7 +226,6 @@ export default function ReporteZPage() {
         <div style={S.logo}>FQ</div>
         <span style={{ color: "white", fontWeight: "700", fontSize: "18px" }}>Reporte Z → BC Custom Information</span>
       </header>
-
       <main style={S.main}>
         {error && <div style={S.alert("err")}>{error}</div>}
         {loading && (
@@ -267,13 +245,11 @@ export default function ReporteZPage() {
         {!storeFolders.length && (
           <div style={S.card}>
             <p style={{ color: "#555", marginBottom: "8px", fontSize: "14px", lineHeight: 1.6 }}>
-              Conecta tu cuenta de Google para acceder a los Reportes Z en Drive
-              y pre-llenar el Custom Information de los Sales Orders en BC.
+              Conecta tu cuenta de Google para acceder a los Reportes Z en Drive y pre-llenar el Custom Information de los Sales Orders en BC.
             </p>
             <p style={{ color: "#aaa", marginBottom: "20px", fontSize: "12px" }}>
               OCR procesado en el browser — sin costo de API.
-              {!tesseractReady && " · Cargando motor OCR..."}
-              {tesseractReady && " · Motor OCR listo ✓"}
+              {!tesseractReady ? " · Cargando motor OCR..." : " · Motor OCR listo ✓"}
             </p>
             <button style={S.btnPrimary} onClick={handleConnect}>Conectar Google Drive</button>
           </div>
@@ -281,41 +257,29 @@ export default function ReporteZPage() {
 
         {storeFolders.length > 0 && (
           <div style={S.card}>
-            <h2 style={{ color: "#C0392B", fontSize: "18px", marginBottom: "20px", fontWeight: "700" }}>
-              Selecciona tienda · mes · día
-            </h2>
-
+            <h2 style={{ color: "#C0392B", fontSize: "18px", marginBottom: "20px", fontWeight: "700" }}>Selecciona tienda · mes · día</h2>
             <div style={{ marginBottom: "16px" }}>
               <label style={S.label}>Tienda</label>
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                {STORES.map(s => (
-                  <button key={s.code} style={S.pill(storeCode === s.code)} onClick={() => handleStoreSelect(s.code)}>{s.label}</button>
-                ))}
+                {STORES.map(s => <button key={s.code} style={S.pill(storeCode === s.code)} onClick={() => handleStoreSelect(s.code)}>{s.label}</button>)}
               </div>
             </div>
-
             {months.length > 0 && (
               <div style={{ marginBottom: "16px" }}>
                 <label style={S.label}>Mes</label>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  {months.map(m => (
-                    <button key={m.id} style={S.tag(selMonth?.id === m.id)} onClick={() => handleMonthSelect(m)}>{m.name}</button>
-                  ))}
+                  {months.map(m => <button key={m.id} style={S.tag(selMonth?.id === m.id)} onClick={() => handleMonthSelect(m)}>{m.name}</button>)}
                 </div>
               </div>
             )}
-
             {days.length > 0 && (
               <div style={{ marginBottom: "16px" }}>
                 <label style={S.label}>Día</label>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  {days.map(d => (
-                    <button key={d.id} style={S.tag(selDay?.id === d.id)} onClick={() => handleDaySelect(d)}>{d.name}</button>
-                  ))}
+                  {days.map(d => <button key={d.id} style={S.tag(selDay?.id === d.id)} onClick={() => handleDaySelect(d)}>{d.name}</button>)}
                 </div>
               </div>
             )}
-
             {foundFile && !hasResult && (
               <div style={{ marginTop: "16px", padding: "14px 16px", backgroundColor: "#f0fff4", border: "1px solid #b7f0c8", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div>
@@ -345,11 +309,9 @@ export default function ReporteZPage() {
                 <button style={S.btnPrimary} onClick={copyForBC}>{copied ? "✓ Copiado" : "Copiar para BC"}</button>
               </div>
             </div>
-
             {rawData?.advertencias?.length > 0 && (
               <div style={S.alert("warn")}><strong>Verificar: </strong>{rawData.advertencias.join(" · ")}</div>
             )}
-
             <div style={{ border: "1px solid #f0f0f0", borderRadius: "8px", overflow: "hidden" }}>
               <div style={S.row}>
                 <div style={S.rowLabel}>
@@ -372,7 +334,6 @@ export default function ReporteZPage() {
                 </div>
               ))}
             </div>
-
             {rawData?.calculo_detalle && (
               <details style={{ marginTop: "16px" }}>
                 <summary style={{ fontSize: "13px", color: "#888", cursor: "pointer" }}>Ver desglose del cálculo</summary>
@@ -384,8 +345,8 @@ export default function ReporteZPage() {
                         <tbody>
                           <tr><td style={{ padding: "4px 0" }}>TOTAL VENTA</td><td style={{ textAlign: "right" }}>Bs {fmt(d.totalVenta)}</td></tr>
                           <tr><td style={{ padding: "4px 0", color: "#C0392B" }}>− IGTF VENTA (3%)</td><td style={{ textAlign: "right", color: "#C0392B" }}>Bs {fmt(d.igtfVenta)}</td></tr>
-                          {d.totalNotaDebito > 0 && <tr><td style={{ padding: "4px 0", color: "#27AE60" }}>+ TOTAL ND − IGTF ND</td><td style={{ textAlign: "right", color: "#27AE60" }}>Bs {fmt((d.totalNotaDebito || 0) - (d.igtfNotaDebito || 0))}</td></tr>}
-                          {d.totalNotaCredito > 0 && <tr><td style={{ padding: "4px 0", color: "#C0392B" }}>− TOTAL NC − IGTF NC</td><td style={{ textAlign: "right", color: "#C0392B" }}>Bs {fmt((d.totalNotaCredito || 0) - (d.igtfNotaCredito || 0))}</td></tr>}
+                          {d.totalNotaDebito > 0 && <tr><td style={{ padding: "4px 0", color: "#27AE60" }}>+ TOTAL ND − IGTF ND</td><td style={{ textAlign: "right", color: "#27AE60" }}>Bs {fmt((d.totalNotaDebito||0)-(d.igtfNotaDebito||0))}</td></tr>}
+                          {d.totalNotaCredito > 0 && <tr><td style={{ padding: "4px 0", color: "#C0392B" }}>− TOTAL NC − IGTF NC</td><td style={{ textAlign: "right", color: "#C0392B" }}>Bs {fmt((d.totalNotaCredito||0)-(d.igtfNotaCredito||0))}</td></tr>}
                           <tr style={{ borderTop: "1px solid #eee" }}>
                             <td style={{ padding: "8px 0 4px", fontWeight: "700", color: "#333" }}>= Reporte Z Total</td>
                             <td style={{ textAlign: "right", fontWeight: "700", color: "#333", padding: "8px 0 4px" }}>Bs {fmt(fields.reporteZTotalAmount)}</td>
