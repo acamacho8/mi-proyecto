@@ -45,21 +45,25 @@ export const STORE_PATTERN: Record<string, (name: string) => boolean> = {
 
 export function useDriveNav() {
   const tokenRef = useRef<string | null>(null);
+  const clientRef = useRef<any>(null);
 
   const getToken = useCallback(async (): Promise<string> => {
     await loadScript("https://accounts.google.com/gsi/client");
     if (tokenRef.current) return tokenRef.current;
     return new Promise((resolve, reject) => {
-      const client = window.google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPE,
-        callback: (resp: any) => {
-          if (resp.error) { reject(new Error(resp.error)); return; }
-          tokenRef.current = resp.access_token;
-          resolve(resp.access_token);
-        },
-      });
-      client.requestAccessToken({ prompt: "" });
+      if (!clientRef.current) {
+        clientRef.current = window.google.accounts.oauth2.initTokenClient({
+          client_id: CLIENT_ID,
+          scope: SCOPE,
+          callback: (resp: any) => {
+            if (resp.error) { reject(new Error(resp.error)); return; }
+            tokenRef.current = resp.access_token;
+            resolve(resp.access_token);
+          },
+        });
+      }
+      // prompt: "" intentará usar token existente; si falla por scope, prompt: "consent"
+      clientRef.current.requestAccessToken({ prompt: "consent" });
     });
   }, []);
 
@@ -86,28 +90,14 @@ export function useDriveNav() {
     return files.find(f => pattern(f.name)) ?? null;
   }, [getToken]);
 
-  // OCR via Google Doc: copia la imagen como Google Doc (Drive hace OCR automático), 
-  // exporta el texto y elimina el Doc temporal
+  // OCR gratis via Google Drive: copia la imagen como Google Doc (Drive hace OCR automático)
+  // luego exporta el texto y elimina el Doc temporal
   const extractTextViaGoogleDoc = useCallback(async (fileId: string, onStatus?: (msg: string) => void): Promise<string> => {
     const token = await getToken();
 
-    // Paso 1: Copiar imagen como Google Doc (Drive hace OCR automáticamente)
-    onStatus?.("Convirtiendo imagen a Google Doc (OCR)...");
-    const copyRes = await fetch("https://www.googleapis.com/drive/v3/files/copy", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        name: `_fq_ocr_temp_${Date.now()}`,
-        mimeType: "application/vnd.google-apps.document",
-        parents: [], // raíz de Mi Drive
-      }),
-    });
-
-    // Drive v3 copy con conversión requiere pasar el fileId en la URL
-    const copyRes2 = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/copy`, {
+    // Paso 1: copiar el archivo como Google Doc (Drive convierte + OCR automáticamente)
+    onStatus?.("Aplicando OCR via Google Drive...");
+    const copyRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/copy`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -119,27 +109,27 @@ export function useDriveNav() {
       }),
     });
 
-    const copyData = await copyRes2.json();
-    if (copyData.error) throw new Error("Error al crear Doc: " + copyData.error.message);
+    const copyData = await copyRes.json();
+    if (copyData.error) throw new Error("Error al crear Doc OCR: " + copyData.error.message);
     const docId = copyData.id;
 
     try {
-      // Paso 2: Exportar el Doc como texto plano
-      onStatus?.("Extrayendo texto del documento...");
+      // Paso 2: exportar texto plano del Doc
+      onStatus?.("Extrayendo texto...");
       const exportRes = await fetch(
         `https://www.googleapis.com/drive/v3/files/${docId}/export?mimeType=text/plain`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (!exportRes.ok) throw new Error("Error al exportar texto del Doc");
+      if (!exportRes.ok) throw new Error("Error al exportar texto: " + exportRes.status);
       const text = await exportRes.text();
       return text;
     } finally {
-      // Paso 3: Eliminar el Doc temporal
-      onStatus?.("Limpiando archivos temporales...");
+      // Paso 3: eliminar Doc temporal
+      onStatus?.("Limpiando...");
       await fetch(`https://www.googleapis.com/drive/v3/files/${docId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
-      });
+      }).catch(() => {}); // ignorar error en limpieza
     }
   }, [getToken]);
 
