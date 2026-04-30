@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 
 const PROMPT = `Eres un extractor de datos de Reportes Z de máquinas fiscales HKA venezolanas para Full Queso.
 Extrae estos campos y devuelve SOLO JSON válido sin backticks ni texto adicional:
